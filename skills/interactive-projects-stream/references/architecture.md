@@ -1,0 +1,110 @@
+# Architecture — Interactive Projects Stream
+
+Authority: `ProjectsMarquee.tsx` (file:line cites below). CSS: `globals.css` `.projects-marquee*` (~368–576). Layout: `HomeContent.tsx` `#projects` full-bleed (~160–175).
+
+Motion helpers (`damp`, dt cap, IO/visibility) — cite `webgl-threejs-background-animation` skill; don't duplicate.
+
+## buildInstances + hash01
+
+```ts
+// ProjectsMarquee.tsx:40–48, 85–119
+function hash01(seed: string) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967295;
+}
+```
+
+- Row pool: `projects.filter((_, i) => i % rows === row)` (fallback to full list if empty).
+- For each `copy × pool item`: seed `` `${url}|r${row}|c${copy}|i${i}` ``.
+- `speedMul = 1 + (u - 0.5) * 2 * speedJitter`
+- `gapAfter = gapMin + u * (gapMax - gapMin)`
+- `phase = u * Math.PI * 2` (wobble phase)
+- First occurrence of each URL → `primary: true` (a11y / reduced-motion visibility)
+
+## Dual-row floater runtime
+
+Each DOM tile `[data-stream-tile]` maps to a floater `{ x, y, w, h, speed, scale, targetScale, el, inst }`.
+
+- Row speeds independent: `speed = speedBase * rowSpeedScale[row] * speedMul` (`layoutInitial` ~232–233).
+- Default scales `[1.08, 0.82]` — top lane faster, breaks shelf sync (summary2).
+- Transform only: `translate3d(x,y,0) scale(s)` — compositor-friendly.
+
+## layoutInitial
+
+```
+bandH / bandW from root
+usableH = bandH - 2*bandPadY - rowGap
+rowH = usableH / rows
+phaseShift = -hash01(`row-start-${row}`) * bandW * 0.85
+y = pad + row*(rowH+rowGap) + (rowH-h)/2 + hashYJitter(±6)
+x chain: x0 = phaseShift; next = prev + w + gapAfter
+```
+
+Call on mount, ResizeObserver, and leaving reduced-motion. Apply transforms immediately after to avoid flash.
+
+## wrapFloaters
+
+Per row: if `f.x + f.w < -40`, place after the current rightmost sibling: `f.x = maxRight + gapAfter`. Keeps infinite density without duplicating React trees mid-frame.
+
+## rAF tick
+
+```ts
+// ProjectsMarquee.tsx:291–317
+dt = lastT === 0 ? 0 : Math.min((now - lastT) / 1000, 0.05)
+wobble = 1 + sin(clock * (0.7 + phase*0.15) + phase) * speedWobble
+f.x -= f.speed * wobble * dt
+f.scale = damp(f.scale, hover ? hoverScale : 1, scaleK, dt)
+wrapFloaters(); applyTransforms(); updatePopupPosition if hovered
+```
+
+Gate loop: stop when `!inView || !tabVisible || reduceMotion`. On tab visible again, `lastT = 0` (ignore huge dt).
+
+## Popup architecture (required traps)
+
+**Why portal to `body` + `position: fixed`:** band uses `overflow: hidden` + horizontal `mask-image`. In-band popups clip at the fade edges. Portaled fixed popup floats over page content (`globals.css` ~482–489; comment at TSX ~149–151).
+
+**mounted must be set first; effect deps must include `mounted`:**
+
+```ts
+const [mounted, setMounted] = useState(false);
+useEffect(() => setMounted(true), []);
+// portal: {mounted && createPortal(..., document.body)}
+useEffect(() => {
+  const popup = popupRef.current;
+  if (!root || !popup || ...) return; // early exit if popup not in DOM yet
+  // ...
+}, [instances, projectByUrl, mounted]); // mounted REQUIRED
+```
+
+Symptom if omitted: listeners never attach; popup never shows. Cause: first effect run sees `popupRef.current === null`, cleans up, never re-runs.
+
+Other popup rules:
+- `pointer-events: none` — never steal clicks from tiles/page
+- Imperative fill (`fillPopup`) — avoid React setState on every hover (keeps rAF smooth)
+- Position each frame from `getBoundingClientRect()`:
+  - `left` centered on tile, clamped to `[8, innerWidth - pw - 8]`
+  - prefer **above** if `rect.top - ph - 12 >= 8`
+  - else **below** if fits
+  - else clamp into viewport
+- Fine pointer only: `(hover: hover) and (pointer: fine)`; touch skips popup
+- Keyboard: `focusin`/`focusout` on root mirrors hover
+
+## Full-bleed layout
+
+`HomeContent.tsx` (~160–175): `#projects` section is `w-full` (sibling to padded columns, not inside them). Heading wrapper uses `max-w-lg md:max-w-2xl mx-auto px-6`; `<ProjectsMarquee />` has no horizontal pad; skills block re-wraps in the same max-width column.
+
+## a11y
+
+| Gate | Behavior |
+|---|---|
+| `prefers-reduced-motion` | Stop rAF; clear transforms; CSS grid auto-fill; hide `aria-hidden` duplicates; hide popup |
+| Duplicates | `aria-hidden` + `tabIndex={-1}` |
+| Primary tiles | Real focusable `<a>`, `aria-label={title}` |
+| External links | `target="_blank" rel="noopener noreferrer"`; same-origin (`lizliz.xyz` or `/`) stays inline |
+| Region | `role="region"` + section aria-label |
+
+CSS reduced-motion: `.projects-marquee` height auto, mask off; stage → grid; tiles `position: relative; transform: none !important`.

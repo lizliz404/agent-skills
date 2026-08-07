@@ -1,6 +1,6 @@
 # Agent Skills
 
-Downloadable, unzip-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Six packs, each with its own ready-to-download zip. No installers, no frameworks, no signup.
+Downloadable, unzip-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Seven packs, each with its own ready-to-download zip. No installers, no frameworks, no signup.
 
 Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same packs, same zips.
 
@@ -8,7 +8,7 @@ Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same pa
 
 **Agent skills are instruction packs for coding AIs.** Instead of re-explaining your process every session — "capture the page, check density, verify offline" — you hand the agent a skill folder and it follows the workflow, runs the scripts, and hits the same gates you would.
 
-These six packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. A skill is just a folder — `SKILL.md` (the workflow map) plus `scripts/` and `references/` that the agent loads when it needs them.
+These seven packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. A skill is just a folder — `SKILL.md` (the workflow map) plus `scripts/` and `references/` that the agent loads when it needs them.
 
 ## The Packs
 
@@ -20,6 +20,7 @@ These six packs come from real pipelines on lizliz.xyz: they were built to get a
 | <img src="assets/skills/video-script-conversion.svg" width="36" alt="" /> | **Video Script Conversion** | Rebuild, refine, and audit spoken-voice scripts from articles — five seconds decide if viewers stay | [video-script-conversion.zip](skills/video-script-conversion/video-script-conversion.zip) |
 | <img src="assets/skills/design-md-visual-system.svg" width="36" alt="" /> | **DESIGN.md Visual System** | Write implementation-grade DESIGN.md — YAML tokens plus the judgment prose agents need to ship UI without inventing taste | [design-md-visual-system.zip](skills/design-md-visual-system/design-md-visual-system.zip) |
 | <img src="assets/skills/webgl-threejs-background-animation.svg" width="36" alt="" /> | **WebGL Three.js Background Animation** | WebGL that blends into the page — config-driven, GPU-budgeted, full lifecycle hygiene | [webgl-threejs-background-animation.zip](skills/webgl-threejs-background-animation/webgl-threejs-background-animation.zip) |
+| <img src="assets/skills/interactive-projects-stream.svg" width="36" alt="" /> | **Interactive Projects Stream** | Full-bleed dual-row interactive stream — per-tile speed jitter, portaled OG hover popup, zero deps | [interactive-projects-stream.zip](skills/interactive-projects-stream/interactive-projects-stream.zip) |
 
 ## Key Features
 
