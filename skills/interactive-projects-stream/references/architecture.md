@@ -1,13 +1,13 @@
 # Architecture — Interactive Projects Stream
 
-Authority: `ProjectsMarquee.tsx` (file:line cites below). CSS: `globals.css` `.projects-marquee*` (~368–576). Layout: `HomeContent.tsx` `#projects` full-bleed (~160–175).
+Authority: `ProjectsMarquee.tsx` (file:line cites below). CSS: `globals.css` `.projects-marquee*` (~368–620). Layout: `HomeContent.tsx` `#projects` full-bleed (~160–175).
 
 Motion helpers (`damp`, dt cap, IO/visibility) — cite `webgl-threejs-background-animation` skill; don't duplicate.
 
 ## buildInstances + hash01
 
 ```ts
-// ProjectsMarquee.tsx:40–48, 85–119
+// ProjectsMarquee.tsx:42–50, 87–120
 function hash01(seed: string) {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
@@ -20,18 +20,18 @@ function hash01(seed: string) {
 
 - Row pool: `projects.filter((_, i) => i % rows === row)` (fallback to full list if empty).
 - For each `copy × pool item`: seed `` `${url}|r${row}|c${copy}|i${i}` ``.
-- `speedMul = 1 + (u - 0.5) * 2 * speedJitter`
-- `gapAfter = gapMin + u * (gapMax - gapMin)`
-- `phase = u * Math.PI * 2` (wobble phase)
+- `gapAfter = gapMin + u * (gapMax - gapMin)` — primary in-row spacing variety.
+- `phase = u * Math.PI * 2` — Y bob phase only (not speed).
 - First occurrence of each URL → `primary: true` (a11y / reduced-motion visibility)
+- **No `speedMul`.** Speed variance removed after Liz feedback (same-row stacking).
 
 ## Dual-row floater runtime
 
-Each DOM tile `[data-stream-tile]` maps to a floater `{ x, y, w, h, speed, scale, targetScale, el, inst }`.
+Each DOM tile `[data-stream-tile]` maps to a floater `{ x, y, baseY, w, h, speed, scale, targetScale, el, inst }`.
 
-- Row speeds independent: `speed = speedBase * rowSpeedScale[row] * speedMul` (`layoutInitial` ~232–233).
-- Default scales `[1.08, 0.82]` — top lane faster, breaks shelf sync (summary2).
+- **Uniform speed:** `f.speed = TUNING.speedBase` in `layoutInitial` (~243).
 - Transform only: `translate3d(x,y,0) scale(s)` — compositor-friendly.
+- Optional visual bob: `y = baseY + sin(clock*0.85 + phase) * bobAmp` — does not change Δx/Δt.
 
 ## layoutInitial
 
@@ -40,32 +40,52 @@ bandH / bandW from root
 usableH = bandH - 2*bandPadY - rowGap
 rowH = usableH / rows
 phaseShift = -hash01(`row-start-${row}`) * bandW * 0.85
-y = pad + row*(rowH+rowGap) + (rowH-h)/2 + hashYJitter(±6)
+baseY = pad + row*(rowH+rowGap) + (rowH-h)/2 + hashYJitter(±6)
 x chain: x0 = phaseShift; next = prev + w + gapAfter
+speed = speedBase  // all tiles
 ```
 
 Call on mount, ResizeObserver, and leaving reduced-motion. Apply transforms immediately after to avoid flash.
 
 ## wrapFloaters
 
-Per row: if `f.x + f.w < -40`, place after the current rightmost sibling: `f.x = maxRight + gapAfter`. Keeps infinite density without duplicating React trees mid-frame.
+Per row: if `f.x + f.w < -40`, place after the current rightmost sibling: `f.x = maxRight + gapAfter`.
+
+With **uniform speed**, gaps stay constant → tiles never catch each other; wrap stays seamless.
 
 ## rAF tick
 
 ```ts
-// ProjectsMarquee.tsx:291–317
+// ProjectsMarquee.tsx ~316–340
 dt = lastT === 0 ? 0 : Math.min((now - lastT) / 1000, 0.05)
-wobble = 1 + sin(clock * (0.7 + phase*0.15) + phase) * speedWobble
-f.x -= f.speed * wobble * dt
+f.x -= f.speed * dt
+f.y = f.baseY + sin(clock * 0.85 + phase) * bobAmp
 f.scale = damp(f.scale, hover ? hoverScale : 1, scaleK, dt)
 wrapFloaters(); applyTransforms(); updatePopupPosition if hovered
 ```
 
 Gate loop: stop when `!inView || !tabVisible || reduceMotion`. On tab visible again, `lastT = 0` (ignore huge dt).
 
+## Images (tile + popup)
+
+**Tile icons** (`ProjectsMarquee.tsx` ~505–523; CSS ~465–497):
+- `loading="lazy"` + `decoding="async"`
+- `onLoad` → `.is-loaded` fade-in
+- `onError` → hide img, set parent `data-failed="1"` → CSS `::after` shows `data-letter` (title initial). Never show browser broken-image glyph.
+
+**OG popup** (`fillPopup` + load/error listeners; CSS ~550–575):
+- Media area always has placeholder background while `data-loaded="0"`
+- Title/desc show immediately; large OG fades in on `load`
+- `error` → hide media (text still useful)
+- Data SoT: `scripts/fetch-project-previews.cjs` `FALLBACKS` / `CURATED` — prefer existing svg/32px icons; regenerate JSON, don't hand-edit.
+
+## Pool surface (optional, light)
+
+`.projects-marquee::before` (~391–409): faint tint + tiny backdrop-blur + inset highlight so tiles read as floating on a pool, not sliding on bare page bg. Soften tile `box-shadow` for a weak reflection cue. Keep cheap — no heavy glass stack.
+
 ## Popup architecture (required traps)
 
-**Why portal to `body` + `position: fixed`:** band uses `overflow: hidden` + horizontal `mask-image`. In-band popups clip at the fade edges. Portaled fixed popup floats over page content (`globals.css` ~482–489; comment at TSX ~149–151).
+**Why portal to `body` + `position: fixed`:** band uses `overflow: hidden` + horizontal `mask-image`. In-band popups clip at the fade edges. Portaled fixed popup floats over page content (`globals.css` popup block; comment at TSX ~158–160).
 
 **mounted must be set first; effect deps must include `mounted`:**
 
