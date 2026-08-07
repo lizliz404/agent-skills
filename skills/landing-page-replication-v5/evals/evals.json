@@ -1,0 +1,89 @@
+{
+  "skill_name": "landing-page-replication-v5",
+  "version": 5,
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Replicate vercel.com landing page to ~85% fidelity for an internal study clone.",
+      "expected_output": [
+        "Risk posture Study chosen",
+        "Two-Reference Rule with anti-reference + 3 sharp edges",
+        "docs/SIGNAL.md from template including Interaction Contract table",
+        "6-loop progression with IMR/blur before pixel chase and Behavior before polish",
+        "No Distinctiveness branch required for study"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Target is Webflow-built; curl HTML has no woff2 filenames and little CSS. What do you do in Loop 0–1?",
+      "expected_output": [
+        "Capture Router escalates to Playwright or manual DevTools",
+        "computed.json for H1/body/button",
+        "extract-tokens still run; Google Fonts/Typekit parsed if present",
+        "capture-runtime.py still attempted or static N/A documented",
+        "Does not block forever waiting for Next.js-style media filenames"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Ship a commercial CRM competing in the same market as a named SaaS we studied. Default path?",
+      "expected_output": [
+        "Risk posture Ship (default if unsure)",
+        "Composite 3–5 category leaders, not single-target clone",
+        "Trade-dress warning acknowledged",
+        "STOP and load brand-distinction-v1 after replication loops",
+        "Never name the source publicly"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "curl and headless Playwright both return 403/challenge from Cloudflare. Is Loop 0 failed?",
+      "expected_output": [
+        "No — manual DevTools capture is a legitimate Loop 0 path",
+        "Document dump quality as bot-blocked in SIGNAL.md",
+        "Screenshots still required",
+        "Stub runtime.json from manual observation when theater suspected"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Replica hero looks clean but audit.py --imr shows 12% vs target 28%. What loop are you in?",
+      "expected_output": [
+        "Still Loop 3 Density — gate failed",
+        "Failure Gallery A Empty Cards",
+        "Cut strategy: finish mocks, don't pixel-chase",
+        "Do not advance to Loop 6 ±2px"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Hero IMR passes (±3%) but recon/assets.json has a canvas and replica canvasCount is 0 with no pointer reactivity. May we ship after Loop 4?",
+      "expected_output": [
+        "No — Failure Gallery I Static Snapshot Syndrome",
+        "Loop 5 Behavior blocks",
+        "audit.py --behavior-offline (default) must clear canvas/pointer-theater blockers or GAPS defer with pass criterion",
+        "IMR on frozen frame is insufficient"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Target offsets.json maxScroll=12319; replica live maxScroll=6429; IMR hero/contact pass. Next action?",
+      "expected_output": [
+        "Failure Gallery J Scroll Compress Syndrome",
+        "audit.py --scroll-length fails ratio ~0.52 < 0.85",
+        "Lengthen scroll tunnel / sticky wrappers before polish",
+        "Do not treat as P3"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "haoqi-class portfolio: no tabs, WebGL + Lenis. How does Loop 5 priority differ from Attio-class?",
+      "expected_output": [
+        "Theater-runtime-first: scroll length → WebGL/CSS theater linkage → sticky/HUD morph",
+        "Nav/tabs demoted; tabs gate irrelevant when absent",
+        "Load case-haoqi.md; Interaction Contract required",
+        "prefers-reduced-motion still required"
+      ]
+    }
+  ]
+}

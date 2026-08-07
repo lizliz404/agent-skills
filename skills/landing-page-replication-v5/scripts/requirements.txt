@@ -1,0 +1,7 @@
+# Deps for landing-page-replication-v5 scripts
+# Pillow: --imr/--diff/--rhythm
+# playwright: capture-runtime, --scroll-length, --behavior, --typescale/--density
+Pillow>=10.0.0
+playwright>=1.40.0
+# optional:
+# scikit-image>=0.22.0

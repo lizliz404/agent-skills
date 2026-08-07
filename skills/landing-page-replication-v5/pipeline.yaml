@@ -1,0 +1,164 @@
+# Machine-readable loop-gate schema for landing-page-replication-v5
+# Agent: read this to know where you are, what to run, and whether you may advance.
+# Provenance: v4 + liz v5 audit (replica-only / pointer continuity / scroll-spectrum / self-test execution).
+
+skill: landing-page-replication-v5
+version: 5
+
+budget:
+  max_agent_turns_per_loop: 12
+  max_capture_retries: 3
+  max_behavior_audit_retries: 2
+  screenshot_min: 5
+
+logs:
+  capture: recon/capture.log
+  runtime: recon/runtime-capture.log
+  behavior: recon/behavior-diff.json
+  gaps: docs/GAPS.md
+  eval_harness: scripts/run-evals.py --self-test
+
+preconditions:
+  - id: risk-posture
+    required: true
+    values: [study, ship]
+    default_if_unsure: ship
+  - id: two-reference-rule
+    required: true
+    fields: [positive_url, anti_reference_url, sharp_edges]
+    sharp_edges_min: 3
+
+loops:
+  - id: capture
+    decision: "Can I reconstruct story arc, type/color roles, density, and runtime surface from evidence?"
+    entry: scripts/capture.py --url {target} --out recon/
+    outputs:
+      - recon/index.html
+      - recon/headers.txt
+      - recon/screenshots/
+      - recon/computed.json   # optional; required for SPA/Framer
+      - recon/dom.html        # optional; Playwright render
+      - recon/runtime.json    # REQUIRED for theater-class targets; N/A documented otherwise
+      - recon/assets.json     # canvases / imgs / videos when captured
+      - recon/offsets.json    # section tops + maxScroll when captured
+    gates:
+      auto:
+        - scripts/validate-capture.py recon/
+        - scripts/extract-tokens.py recon/index.html --base-url {target}
+        - scripts/capture-runtime.py --url {target} --out recon/runtime.json
+        - "fonts signal non-empty (file OR google OR typekit OR computed)"
+        - "≥5 screenshots OR bot-block documented"
+        - "runtime.json present OR static-no-theater N/A in SIGNAL.md"
+      human:
+        - "story headings readable OR SPA escalation documented"
+        - "if canvasCount > 0: tag WEBGL_THEATER in SIGNAL.md"
+    next: signal-sheet
+
+  - id: signal-sheet
+    decision: "What are the type/color/density/interaction contracts I will build against?"
+    entry: docs/SIGNAL.md
+    template: references/signal-sheet.md
+    gates:
+      human:
+        - "type roles + ink/paper filled with evidence tags"
+        - "two-reference fields complete"
+        - "micro-pattern backlog ≥ 3"
+        - "if runtime flags scroll/pointer theater: backlog includes ≥1 scroll-linked AND ≥1 pointer-linked"
+        - "Interaction Contract table filled (not prose) for every P0 runtime signal"
+        - "risk posture recorded"
+      auto:
+        - scripts/validate-signal.py docs/SIGNAL.md recon/runtime.json
+    next: skeleton
+
+  - id: skeleton
+    decision: "Does section rhythm match the target thumbnail before density work?"
+    gates:
+      human:
+        - "side-by-side thumbnails: section order + backgrounds match"
+        - "WindowChrome/primitives + tokens + data.ts exist"
+        - "scroll budget reserved from offsets/runtime maxScroll (no surprise short page)"
+      auto:
+        - scripts/audit.py --typescale {replica_url}
+    next: density
+
+  - id: density
+    decision: "Does replica ink-mass at hero/feature/dark bands fall within ±8% of target — and is scroll length ≥0.85?"
+    references: [references/product-theater.md, references/taste-rubric.md]
+    gates:
+      auto:
+        - scripts/audit.py --imr {target_shot} {replica_shot} --tolerance 8
+        - scripts/audit.py --density {replica_url}   # when URL available
+        - scripts/audit.py --scroll-length recon/offsets.json {replica_url} --min-ratio 0.85
+      human:
+        - "10px blur side-by-side; dark-mass shapes match"
+        - "Generic-SaaS sniff vs anti-reference"
+        - "scroll-length fail only advances with GAPS.md compression rationale"
+    next: micro-parity
+
+  - id: micro-parity
+    decision: "Are the 3 sharp edges from Two-Reference Rule visibly present?"
+    references: [references/ip-and-fonts.md, prompts/hero-copy-rewrite.md]
+    gates:
+      human:
+        - "named backlog done or explicitly deferred"
+        - "no hotlinked target fonts"
+        - "font metric-align applied or justified N/A"
+        - "Generic-SaaS sniff pass"
+        - "no replica-only motion unless listed as intentional sharp edge"
+    next: behavior
+
+  - id: behavior
+    decision: "Does every P0 interaction have implementation or explicit defer — proven live?"
+    references:
+      - references/failure-gallery.md
+      - references/behavior-gates.md
+      - prompts/behavior-audit.md
+      - references/case-haoqi.md
+    gates:
+      auto:
+        # Default: offline target (bot-management hygiene). Live --behavior is supplemental.
+        - scripts/audit.py --behavior-offline recon/runtime.json {replica_url} --signal docs/SIGNAL.md --out recon/behavior-diff.json
+        - scripts/audit.py --reduced-motion {replica_url}
+        # blockers: canvas, webgl, scroll-length, pointer-theater, scroll-states,
+        #           reduced-motion, smooth-nav, replica-only-motion
+      human:
+        - "behavior-diff.json blockers empty OR each blocker deferred in GAPS.md with pass criterion"
+        - "Static Snapshot Syndrome check: assets/runtime canvas vs replica canvasCount"
+        - "scroll-state count ≥2 distinct mid-scroll states on long pages (broad-spectrum)"
+        - "prefers-reduced-motion kills infinite CSS/WebGL loops"
+        - "no undeclared replica-only motion"
+      priority:
+        - scroll_container_and_length
+        - webgl_or_css_theater_pointer_and_scroll
+        - sticky_scroll_scene_morph
+        - observer_nav_tabs
+        - prefers_reduced_motion
+        - a11y_theater
+    next: polish
+
+  - id: polish
+    decision: "Do remaining micro behaviors match without tanking LCP?"
+    checklist: references/fidelity-checklist.md
+    gates:
+      human:
+        - "keyboard focus visible on nav/CTAs"
+        - "decorative theater aria-hidden; real CTAs semantic"
+        - "±2px only on P0 sections after behavior blockers clear"
+      ship_only:
+        - "Lighthouse Performance within ~15 of target (mobile)"
+    stop: true
+
+escalations:
+  bot_management: "Manual DevTools Network+Elements is a legitimate Loop 0 path; prefer --behavior-offline so Loop 5 does not re-hit the target"
+  rebrand: "STOP → load brand-distinction-v1 (not part of this skill)"
+  static_snapshot: "Failure Gallery I — do not advance past behavior with canvasCount mismatch"
+  scroll_compress: "Failure Gallery J — require GAPS waiver for ratio < 0.85"
+  domain_forks:
+    ecommerce: references/ecommerce-storefront.md
+    cjk: references/cjk-independent-site.md
+    webgl_portfolio: references/case-haoqi.md
+
+evals:
+  path: evals/evals.json
+  harness: scripts/run-evals.py
+  self_test: scripts/run-evals.py --self-test
