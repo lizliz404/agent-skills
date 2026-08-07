@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Landing Page Replication v5">
+  <!-- Layered frames + fidelity crosshair — readable at 20px -->
+  <rect width="32" height="32" rx="8" fill="#141413"/>
+  <!-- back page -->
+  <rect x="7.5" y="6.5" width="14" height="18" rx="1.5" stroke="#716D64" stroke-width="1.2" opacity="0.75"/>
+  <!-- front page -->
+  <rect x="10.5" y="9" width="14" height="18" rx="1.5" fill="#FAF9F5" stroke="#E8E4DD" stroke-width="0.8"/>
+  <!-- type lines -->
+  <path d="M13.2 13.2h8.6M13.2 16h7.2M13.2 18.8h5.4" stroke="#716D64" stroke-width="1.15" stroke-linecap="round"/>
+  <!-- orange accent bar (brand tick) -->
+  <rect x="13.2" y="21.6" width="3.2" height="1.6" rx="0.3" fill="#FF5B3C"/>
+  <!-- v5 badge dot -->
+  <circle cx="23.2" cy="10.8" r="2.4" fill="#FF5B3C"/>
+</svg>
