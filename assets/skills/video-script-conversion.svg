@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Video Script Conversion">
-  <!-- Script page + play button — readable at 20px -->
-  <rect width="32" height="32" rx="8" fill="#1C1915"/>
-  <!-- script page -->
-  <rect x="8" y="7" width="15" height="18" rx="2" stroke="#E8E4DD" stroke-width="1.3"/>
-  <!-- text lines (spoken-word beats) -->
-  <rect x="10.8" y="11" width="9" height="1.2" rx="0.6" fill="#E8E4DD"/>
-  <rect x="10.8" y="14.5" width="7" height="1.2" rx="0.6" fill="#E8E4DD"/>
-  <rect x="10.8" y="18" width="5" height="1.2" rx="0.6" fill="#E8E4DD"/>
-  <!-- play button (voice) -->
-  <circle cx="22.5" cy="19.5" r="4.5" fill="#B14E22"/>
-  <path d="M20.7 17.8v3.4c0 .6.7 1 1.3.6l2.4-1.7c.5-.35.5-1.05 0-1.4l-2.4-1.7c-.6-.4-1.3 0-1.3.6z" fill="#FAF9F5"/>
+  <!-- Beat Timeline: horizontal rail + spoken beats + magenta hook -->
+  <rect x="2.6" y="8.4" width="26.8" height="15.2" rx="7.6" fill="#E6C84A" stroke="#1C1910" stroke-width="1.6"/>
+  <!-- base rail -->
+  <path d="M6.4 22.2h19.2" stroke="#1C1910" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- hook beat (first five seconds) -->
+  <rect x="7.1" y="10.6" width="2.2" height="11.6" rx="1.1" fill="#C2185B" stroke="#1C1910" stroke-width="0.7"/>
+  <!-- spoken beats -->
+  <rect x="11.4" y="13.4" width="2" height="8.8" rx="1" fill="#1C1910"/>
+  <rect x="15.5" y="12.2" width="2" height="10" rx="1" fill="#1C1910"/>
+  <rect x="19.6" y="14.6" width="2" height="7.6" rx="1" fill="#1C1910"/>
+  <rect x="23.7" y="15.8" width="2" height="6.4" rx="1" fill="#1C1910"/>
 </svg>

@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="WebGL Three.js Background Animation">
-  <!-- Dashed wireframe ink garden — readable at 20px -->
-  <rect width="32" height="32" rx="8" fill="#1C1915"/>
-  <!-- stem arc (sketch layer, dashed) -->
-  <path d="M7 25 C 12 20, 14 10, 22 7" stroke="#E8E4DD" stroke-width="1.3" fill="none" stroke-dasharray="2.6 1.6"/>
-  <!-- leaf arc (lighter annotation layer) -->
-  <path d="M13 18 C 17 16, 19 12, 21 9" stroke="#716D64" stroke-width="1.1" fill="none" stroke-dasharray="1.8 1.6"/>
-  <!-- dimension tick -->
-  <path d="M17 22.5 L 23.5 22.5" stroke="#716D64" stroke-width="1.1"/>
-  <path d="M23.5 20.5 L 23.5 24.5" stroke="#716D64" stroke-width="1.1"/>
-  <!-- accent: dissolve dot (camera / accent category) -->
-  <circle cx="22" cy="7" r="1.7" fill="#B14E22"/>
-  <circle cx="22" cy="7" r="3.6" stroke="#B14E22" stroke-width="0.9" opacity="0.7"/>
+  <!-- Depth Dissolve: glass disc + wire volume + phosphor spiral -->
+  <circle cx="16" cy="16" r="13.2" fill="#CFFAFE" stroke="#0F172A" stroke-width="1.6"/>
+  <!-- perspective triangle wire -->
+  <path d="M16 7.4 L24.2 22.6 L7.8 22.6 Z" fill="none" stroke="#0F766E" stroke-width="1.35" stroke-linejoin="round"/>
+  <path d="M16 7.4 L16 22.6" stroke="#0F766E" stroke-width="1.1" opacity="0.55"/>
+  <!-- helical dissolve path -->
+  <path d="M11.2 20.2 C12.4 16.8, 14.2 14.2, 16.8 12.4 C18.6 11.2, 20.4 11.6, 21.6 13.2" stroke="#134E4A" stroke-width="1.15" fill="none" stroke-linecap="round"/>
+  <!-- phosphor particles (dissolve) -->
+  <circle cx="11.2" cy="20.2" r="1.55" fill="#F59E0B" stroke="#0F172A" stroke-width="0.6"/>
+  <circle cx="14.1" cy="15.6" r="1.2" fill="#F59E0B" stroke="#0F172A" stroke-width="0.55"/>
+  <circle cx="17.4" cy="12.6" r="0.95" fill="#F59E0B" stroke="#0F172A" stroke-width="0.5"/>
+  <circle cx="21.4" cy="13.1" r="0.7" fill="#F59E0B" opacity="0.85"/>
 </svg>

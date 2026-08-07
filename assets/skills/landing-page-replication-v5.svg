@@ -1,14 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Landing Page Replication v5">
-  <!-- Layered frames + fidelity crosshair — readable at 20px -->
-  <rect width="32" height="32" rx="8" fill="#141413"/>
-  <!-- back page -->
-  <rect x="7.5" y="6.5" width="14" height="18" rx="1.5" stroke="#716D64" stroke-width="1.2" opacity="0.75"/>
-  <!-- front page -->
-  <rect x="10.5" y="9" width="14" height="18" rx="1.5" fill="#FAF9F5" stroke="#E8E4DD" stroke-width="0.8"/>
-  <!-- type lines -->
-  <path d="M13.2 13.2h8.6M13.2 16h7.2M13.2 18.8h5.4" stroke="#716D64" stroke-width="1.15" stroke-linecap="round"/>
-  <!-- orange accent bar (brand tick) -->
-  <rect x="13.2" y="21.6" width="3.2" height="1.6" rx="0.3" fill="#FF5B3C"/>
-  <!-- v5 badge dot -->
-  <circle cx="23.2" cy="10.8" r="2.4" fill="#FF5B3C"/>
+  <!-- Calibration Gate: registration crop marks + nested frame + pass -->
+  <rect x="4.2" y="4.2" width="23.6" height="23.6" rx="1.1" fill="#DCEAF7" stroke="#163A5F" stroke-width="1.6"/>
+  <!-- corner crop marks -->
+  <path d="M7 4.2V7M4.2 7H7M25 4.2V7M27.8 7H25M7 27.8V25M4.2 25H7M25 27.8V25M27.8 25H25" stroke="#163A5F" stroke-width="1.35" stroke-linecap="square"/>
+  <!-- nested replica frame -->
+  <rect x="9.2" y="9.2" width="13.6" height="13.6" rx="0.6" fill="none" stroke="#2B6CB0" stroke-width="1.35"/>
+  <!-- crosshair -->
+  <path d="M16 11.2v9.6M11.2 16h9.6" stroke="#163A5F" stroke-width="1.25" stroke-linecap="square"/>
+  <!-- pass gate -->
+  <circle cx="22.6" cy="22.6" r="2.35" fill="#1F8A4C" stroke="#163A5F" stroke-width="0.85"/>
 </svg>
