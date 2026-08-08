@@ -13,14 +13,14 @@ These eight packs come from real pipelines on lizliz.xyz: they were built to get
 ## The Packs
 
 <p align="center">
-  <img src="assets/skills/doubao-tts.svg" width="48" alt="Doubao TTS" />
-  <img src="assets/skills/geo-job-hunt.svg" width="48" alt="Geo Job Hunt" />
-  <img src="assets/skills/landing-page-replication-v5.svg" width="48" alt="Landing Page Replication v5" />
-  <img src="assets/skills/video-script-conversion.svg" width="48" alt="Video Script Conversion" />
-  <img src="assets/skills/design-md-visual-system.svg" width="48" alt="DESIGN.md Visual System" />
-  <img src="assets/skills/webgl-threejs-background-animation.svg" width="48" alt="WebGL Three.js Background Animation" />
-  <img src="assets/skills/interactive-projects-stream.svg" width="48" alt="Interactive Projects Stream" />
-  <img src="assets/skills/seo-master.svg" width="48" alt="SEO Master" />
+  <img src="https://lizliz.xyz/assets/icons/skills/doubao-tts.svg" width="48" alt="Doubao TTS" />
+  <img src="https://lizliz.xyz/assets/icons/skills/geo-job-hunt.svg" width="48" alt="Geo Job Hunt" />
+  <img src="https://lizliz.xyz/assets/icons/skills/landing-page-replication-v5.svg" width="48" alt="Landing Page Replication v5" />
+  <img src="https://lizliz.xyz/assets/icons/skills/video-script-conversion.svg" width="48" alt="Video Script Conversion" />
+  <img src="https://lizliz.xyz/assets/icons/skills/design-md-visual-system.svg" width="48" alt="DESIGN.md Visual System" />
+  <img src="https://lizliz.xyz/assets/icons/skills/webgl-threejs-background-animation.svg" width="48" alt="WebGL Three.js Background Animation" />
+  <img src="https://lizliz.xyz/assets/icons/skills/interactive-projects-stream.svg" width="48" alt="Interactive Projects Stream" />
+  <img src="https://lizliz.xyz/assets/icons/skills/seo-master.svg" width="48" alt="SEO Master" />
 </p>
 
 - **Doubao TTS** — Turn articles into spoken audio, dual-speaker podcasts, and ASR transcripts via Volcengine 豆包语音 · [doubao-tts.zip](skills/doubao-tts/doubao-tts.zip)
