@@ -55,8 +55,8 @@ metadata:
 
 ## Interaction checklist
 
-- [ ] 无限运动 >5s：region 首个 control 可 pause/resume；user pause 不自动撤销。
-- [ ] Keyboard focus 进入即切 static mode；离开不自动恢复，须显式 resume。
+- [ ] 用户 pause/resume 是 profile 选项（`userControl`），装饰性发现流默认 off——不暴露按钮；开启时 control 位于 region 首个 tab stop 且 user pause 不自动撤销
+- [ ] Keyboard focus 默认 popup-only（流继续）；`focusStatic` 开启时 focus 切 static 且不自动恢复（键盘焦点型站点按 WCAG 2.2.2 启用）
 - [ ] Hover/focus preview 必须 dismissible（Esc）、hoverable、persistent；否则改成 click disclosure。
 - [ ] Touch 明确选择 `peek`（release closes）或 `pin`（outside/Esc closes）；quick tap 保持导航。
 - [ ] Portal popup viewport-clamped；mount dependency、focus pointer gate、image terminal-state backfill 保留。

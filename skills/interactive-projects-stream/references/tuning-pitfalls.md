@@ -15,8 +15,8 @@ const TUNING = {
 
 - `laneSpeeds[row]` 可以不同；同 lane tile 不持有 X speed。
 - `runtime` 默认 `"track"`；`"floaters"` 需要书面理由和 collision policy。
-- `focusMode` 默认 `"static"`；不是 `"keep-moving"`。
-- `userControl` 对无限 auto motion 默认开启。
+- `focusMode` 默认 `"popup-only"`；键盘焦点型站点开 `"static"`（focusStatic）。
+- `userControl` 默认 off（装饰性发现流）；内容/阅读型站点开启，control 放 items 前。
 - `touchPreview` 必须显式为 `"peek"` 或 `"pin"`。
 
 ## 2. Calibrated profiles, not laws
@@ -54,8 +54,9 @@ const TUNING = {
 | Off-screen | suspended | keep mode | automatic, clock reset |
 | Hidden tab | suspended | keep mode | automatic, clock reset |
 | Reduced motion | off | static | only if preference changes |
-| User pause | off | static | explicit control |
-| Keyboard focus enters | off | static | explicit control |
+| User pause (userControl on) | off | static | explicit control |
+| Keyboard focus (focusStatic on) | off | static | explicit control |
+| Keyboard focus (default) | keeps moving | motion | popup opens, stream continues |
 | Pointer hover | product choice | motion or frozen | may auto-resume if no user/focus pause |
 
 Do not collapse `suspended`, `reduced`, `userPaused`, and `focusPaused` into one boolean; precedence bugs will restart motion against user intent.
@@ -78,7 +79,7 @@ Measure with Performance panel + Layers; `will-change` without layer evidence is
 
 | Symptom | Root cause | Corrective move |
 |---|---|---|
-| Smooth but inaccessible | Infinite motion has no persistent user control | Pause/resume before content |
+| Smooth but inaccessible (userControl on) | Infinite motion has no persistent user control | Pause/resume before content |
 | Keyboard chases moving links | Focus leaves transport running | Switch to static mode on focus |
 | Focus pause immediately disappears | `focusout` auto-resumes | Require explicit resume |
 | Same-lane pile-up | Per-tile X speed | Rigid track or gap constraint |
@@ -101,8 +102,8 @@ Measure with Performance panel + Layers; `will-change` without layer evidence is
 | Continuity | Lane order unchanged; nearest-neighbor gap never below minimum |
 | Lane independence | Different lane speed/direction does not alter same-lane gap |
 | Dynamic fill | Narrow → ultrawide has no seam and minimal measured repeats |
-| Focus mode | Tab enters; layout becomes static before next paint; focus node survives |
-| User control | Pause persists across focusout, scroll, visibility, and IO changes |
+| Focus mode (focusStatic on) | Tab enters; layout becomes static before next paint; focus node survives |
+| User control (userControl on) | Pause persists across focusout, scroll, visibility, and IO changes |
 | Reduced motion | Starts static; ordinary resume cannot override preference |
 | Popup D/H/P | Esc dismisses; pointer enters popup; no timer auto-close |
 | Touch `peek` | Hold opens, release closes, completed hold suppresses click |

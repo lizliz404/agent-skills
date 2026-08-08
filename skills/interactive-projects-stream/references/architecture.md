@@ -32,16 +32,16 @@ SSR / no JS
                   └─ sparse / reduced → STATIC
 
 MOTION ── off-screen / hidden ──> SUSPENDED
-MOTION ── focus / user pause ───> STATIC_INTERACTION
+MOTION ── focusStatic on: focus ─> STATIC_INTERACTION
 SUSPENDED ── visible ───────────> previous mode, clock reset
-STATIC_INTERACTION ── explicit resume ──> MOTION
+STATIC_INTERACTION ── explicit resume ──> MOTION   (仅 focusStatic 开启时存在)
 ```
 
 规则：
 
-- `focusout` 不自动恢复；否则 keyboard user 刚离开就失去控制。
+- `focusStatic` 与 `userControl` 是 profile 选项；默认 off——装饰性发现流（个人站首页）不暴露按钮、focus 只开 popup、流继续移动。
+- `focusStatic` 开启时：`focusout` 不自动恢复；否则 keyboard user 刚离开就失去控制。
 - `prefers-reduced-motion` 初始进入 static；不得由普通 resume 绕过。
-- `userPaused` 高于 viewport/visibility 状态，直到用户显式更改。
 - Static mode 是一等形态，不是“坏掉时凑合看”的 fallback。
 
 ## 4. Lane-track default
