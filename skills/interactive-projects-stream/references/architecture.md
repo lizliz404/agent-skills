@@ -77,7 +77,7 @@ track.style.transform = `translate3d(${-offset}px, 0, 0)`
 repeats = Math.max(2, Math.ceil((V + O) / C) + 1)
 ```
 
-目的不是制造更多内容，而是覆盖任意 modulo offset。若同一 URL 会同时出现在 viewport，说明内容密度不足：优先 static，而不是继续复制。
+目的不是制造更多内容，而是覆盖任意 modulo offset。重复间距判定：同 URL 相隔一个 cycle，间距须 ≥ `2×maxTileWidth`（marquee 正常第二圈）；不足说明内容密度不足，优先 static，而不是继续复制。宽屏下"同 URL 不同时出现"只适用于真正稀疏的内容（2–3 个 tile）。
 
 - Primary cycle 独占 keyboard / AT semantics。
 - Visual repeats 使用 `aria-hidden` + `tabIndex={-1}`；static mode 隐藏 repeats。

@@ -42,7 +42,7 @@ const TUNING = {
 | `repeats` | `max(2, ceil((V + O) / C) + 1)` | Ultrawide gap / narrow DOM waste |
 | `laneSpeed` | Profile seed + readability probe | Arbitrary novelty |
 | `maxDt` | Clamp resume spike | Hidden-tab teleport |
-| static eligibility | Same URL must not appear twice in one viewport | Fake density |
+| static eligibility | Same-URL spacing ≥ `2×maxTileWidth`（cycle 过短 → static） | Fake density |
 
 `overscanPx` 至少覆盖最大 tile width + 最大 gap；从 measured content 推导，不按 device type 写死。
 

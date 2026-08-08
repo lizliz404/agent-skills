@@ -66,7 +66,7 @@ metadata:
 - [ ] 同 lane 无 overtaking / overlap；跨 lane speed 不影响 gap。
 - [ ] JS 未执行、hydration 中、pause、focus、reduced motion 均能看到完整 static items。
 - [ ] Pause control、focus-static、explicit resume、Esc、hoverable popup 全路径可操作。
-- [ ] Ultrawide 无空洞；同 URL 不在同一 viewport 重复露出；DOM repeats 为测量所得。
+- [ ] Ultrawide 无空洞；同 URL 最小间距 ≥ 2×maxTileWidth（不足则 static）；DOM repeats 为测量所得。
 - [ ] 每 frame transform writes ≤ lane 数 + active popup；无 tick layout read；低端设备 frame budget 过线。
 - [ ] 所有 user-facing control labels 走 host i18n；无新依赖。
 
