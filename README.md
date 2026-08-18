@@ -1,6 +1,6 @@
 # Agent Skills
 
-Downloadable, unzip-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Eight packs, each with its own ready-to-download zip. No installers, no frameworks, no signup.
+Downloadable, unzip-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Nine packs, each with its own ready-to-download zip. No installers, no frameworks, no signup.
 
 Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same packs, same zips.
 
@@ -8,7 +8,7 @@ Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same pa
 
 **Agent skills are instruction packs for coding AIs.** Instead of re-explaining your process every session — "capture the page, check density, verify offline" — you hand the agent a skill folder and it follows the workflow, runs the scripts, and hits the same gates you would.
 
-These eight packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. A skill is just a folder — `SKILL.md` (the workflow map) plus `scripts/` and `references/` that the agent loads when it needs them.
+These nine packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. A skill is just a folder — `SKILL.md` (the workflow map) plus `scripts/` and `references/` that the agent loads when it needs them.
 
 ## The Packs
 
@@ -21,6 +21,7 @@ These eight packs come from real pipelines on lizliz.xyz: they were built to get
   <img src="https://lizliz.xyz/assets/icons/skills/webgl-threejs-background-animation.svg" width="48" alt="WebGL Three.js Background Animation" />
   <img src="https://lizliz.xyz/assets/icons/skills/interactive-projects-stream.svg" width="48" alt="Interactive Projects Stream" />
   <img src="https://lizliz.xyz/assets/icons/skills/seo-master.svg" width="48" alt="SEO Master" />
+  <img src="https://lizliz.xyz/assets/icons/skills/feedback-pipeline.svg" width="48" alt="Feedback Pipeline" />
 </p>
 
 - **Doubao TTS** — Turn articles into spoken audio, dual-speaker podcasts, and ASR transcripts via Volcengine 豆包语音 · [doubao-tts.zip](skills/doubao-tts/doubao-tts.zip)
@@ -31,6 +32,7 @@ These eight packs come from real pipelines on lizliz.xyz: they were built to get
 - **WebGL Three.js Background Animation** — WebGL that blends into the page — config-driven, GPU-budgeted, full lifecycle hygiene · [webgl-threejs-background-animation.zip](skills/webgl-threejs-background-animation/webgl-threejs-background-animation.zip)
 - **Interactive Projects Stream** — Continuous clickable content stream — lane-track transport, accordion-style skill popups, D/H/P previews, zero deps · [interactive-projects-stream.zip](skills/interactive-projects-stream/interactive-projects-stream.zip)
 - **SEO Master** — Full-site SEO/GEO audit plus generative-engine citation measurement — evidence ladder, not vibes · [seo-master.zip](skills/seo-master/seo-master.zip)
+- **Feedback Pipeline** — Same-origin CF Pages feedback → GitHub Issues and/or Telegram; header chrome, not a SaaS FAB · [feedback-pipeline.zip](skills/feedback-pipeline/feedback-pipeline.zip)
 
 ## Key Features
 

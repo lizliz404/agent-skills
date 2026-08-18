@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Feedback Pipeline">
+  <!-- Dual-channel post: header slot + split delivery (not a chat FAB) -->
+  <circle cx="16" cy="16" r="13.2" fill="#EDE6DC" stroke="#1C1915" stroke-width="1.6"/>
+  <!-- header utility rail -->
+  <rect x="7.2" y="8.2" width="17.6" height="4.2" rx="1.2" fill="#1C1915"/>
+  <circle cx="20.6" cy="10.3" r="1.15" fill="#F3B23A"/>
+  <circle cx="23.4" cy="10.3" r="1.15" fill="#EDE6DC"/>
+  <!-- trunk from chrome into split -->
+  <path d="M16 12.4v4.1" stroke="#1C1915" stroke-width="1.45" stroke-linecap="round"/>
+  <!-- left channel: issue card -->
+  <path d="M16 16.5 9.8 19.1v4.6l6.2 2.5 6.2-2.5v-4.6L16 16.5Z" fill="#B14E22" stroke="#1C1915" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M11.4 20.6h4.2M11.4 22.4h3.1" stroke="#EDE6DC" stroke-width="1.15" stroke-linecap="round"/>
+  <!-- right ping -->
+  <circle cx="22.6" cy="21.6" r="2.35" fill="#2F8F7A" stroke="#1C1915" stroke-width="1.15"/>
+  <path d="M22.6 20.3v2.6M21.3 21.6h2.6" stroke="#EDE6DC" stroke-width="1.1" stroke-linecap="round"/>
+</svg>
