@@ -8,7 +8,7 @@ description: Add a GitHub Issue + Telegram dual-channel feedback pipeline to any
 One widget, one Pages Function, two delivery channels. Secrets stay server-side.
 
 ```
-[FeedbackTrigger / Modal] ──POST──> [functions/api/feedback.ts]
+[FeedbackTrigger / Sheet] ──POST──> [functions/api/feedback.ts]
                                          ├─ GitHub Issue (label: feedback)
                                          └─ Telegram message
 ```
@@ -20,15 +20,15 @@ One widget, one Pages Function, two delivery channels. Secrets stay server-side.
 | Source | What to take |
 |---|---|
 | **dieline-generator** | Preferred **architecture**: controlled `FeedbackModal` once at app root + `FeedbackTrigger` in chrome + tiny open store; robust Function (attempts[], one-channel-ok, length cap) |
-| **BrainRush** | Preferred **UX chrome**: top utility cluster, fade/pop, Esc/outside/X, product copy voice (`Suggest a fix` / one-sentence hint). Function is **older** (all-channels-must-succeed) — do not copy for new installs |
+| **BrainRush** | Useful **UX behavior/voice** reference: top utility cluster, Esc/outside/X, short product copy. Its visual treatment is not the default skin, and its Function is **older** (all-channels-must-succeed) — do not copy either blindly |
 | **pep-words** | Same older Function pattern as BrainRush — treat as fleet debt if touched |
-| **This skill `references/`** | Portable baseline to copy. Prefer it over mining old product Functions |
+| **This skill `references/`** | Portable delivery and UI baseline to copy. It is the source of the default; prefer it over mining an installed app |
 
 Product owns final copy and optional product-context fields. Skill owns delivery + chrome contract.
 
 ## Positioning (why this skill exists)
 
-**Job:** give every Liz CF Pages product a same-origin “one sentence felt wrong” path that lands in **GitHub Issues and/or Telegram**, with chrome that looks like the product — not a third-party feedback SaaS.
+**Job:** give every Liz CF Pages product a same-origin “one sentence felt wrong” path that lands in **GitHub Issues and/or Telegram**, with quiet product-native chrome — not a third-party feedback SaaS or generic bootstrap dialog.
 
 **Shape we optimize for:**
 - Multi-site matrix (`*.lizliz.xyz` / BrainRush / dieline / pep-words…): copy two files + env, ship
@@ -103,12 +103,24 @@ Survey notes: [references/provenance/2026-08-18-ecosystem-survey.md](references/
 1. Copy [references/feedback-function.ts](references/feedback-function.ts) → `functions/api/feedback.ts`
 2. Copy UI from [references/FeedbackWidget.tsx](references/FeedbackWidget.tsx):
    - Prefer **header-slot**: export `FeedbackTrigger` + controlled `FeedbackModal` (not standalone FAB)
+   - Wire `language="zh"` for a Chinese product (or `"en"`); then replace tokens/copy only where the host product needs it
    - Optional glue: [references/useFeedbackStore.ts](references/useFeedbackStore.ts)
 3. Mount **one** `FeedbackModal` at app root (outside routes). Put `FeedbackTrigger` next to the language switcher on **every** chrome that has utilities (landing SiteNav **and** workspace TopBar)
 4. Set `APP_SLUG` in the Function (or pass `app` from client) — never leave `[app-name]`
 5. Set env vars on the **CF Pages project** (Production **and** Preview)
 6. Ensure GitHub label `feedback` exists **or** rely on Function label-fallback (see Robustness)
 7. Verify pipeline **and** UX checklist below
+
+## Frozen pipeline contract
+
+Visual changes must not change this boundary:
+
+- Browser sends same-origin `POST /api/feedback` JSON with `message`, `app`, `url`, `userAgent`, and empty `website` honeypot.
+- The Pages Function delivers to GitHub Issues and/or Telegram. One configured channel succeeding is success.
+- With no complete channel configured, return `503` with actionable `missing` diagnostics.
+- GitHub and Telegram credentials stay in server-side Cloudflare bindings. No secret, bot token, PAT, or new required environment variable belongs in the client.
+
+Treat the reference Function as frozen while restyling. Do not rename fields, move delivery into the browser, or replace the same-origin endpoint.
 
 ## Env vars
 
@@ -244,12 +256,15 @@ curl -sS -X POST "https://<your-pages-domain>/api/feedback" \
 - Browser must not hold GitHub/Telegram secrets → Pages Function is the proxy.
 - Return concrete diagnostics (`missing`, `attempts`, `detail`) so the widget can show what failed.
 - Bot/chat table: [telegram-tokens.md](references/telegram-tokens.md)
-- Copy is product-owned. Skill reference defaults are plain EN; BrainRush EN lines are a **product voice** example, not a global string pack.
+- Copy is product-owned. The reference ships short Chinese and English defaults; wire the app locale explicitly and override only when the product already has a stronger voice.
 
-## UI/UX contract (absorb BrainRush chrome + dieline structure)
+## UI/UX contract (quiet sheet, product-native copy)
 
-Canonical chrome: `BrainRush (product reference)/App.tsx` + `src/index.css` animations.  
-Canonical structure: `dieline-generator (product reference)/src/components/FeedbackWidget.tsx` + `useFeedbackStore`.
+Canonical default: this skill's [references/FeedbackWidget.tsx](references/FeedbackWidget.tsx).
+
+Canonical structure: controlled `FeedbackModal` once at root + `FeedbackTrigger` in product chrome + optional tiny `useFeedbackStore`.
+
+The default should feel like a small paper note opened inside an internal tool: light scrim, ink text, one hairline border, compact spacing. Paint its semantic tokens (`canvas`, `surface`, `ink`, `border`) with the host product. Do not import a new component library or invent a feedback-only design system.
 
 ### Placement — do NOT use bottom-right floating CTA
 
@@ -267,31 +282,50 @@ Default placement:
 
 ### Modal interaction (all required)
 
-1. **Fade enter + leave** — `open` + leave animation; `TRANSITION_MS` 220–300
+1. **Quiet enter + leave** — light scrim fades; sheet moves 6–8px without bounce or scale; `TRANSITION_MS` ~180–220
 2. **Click outside closes** — backdrop `onClick={close}`; panel `stopPropagation`
 3. **Escape closes**
-4. **Explicit X** — not the only dismiss path
-5. **Backdrop** — `bg-black/50–60 backdrop-blur-md`, centered / top-centered panel
+4. **Obvious X** — 28–32px bordered control in the header, not a faint floating glyph
+5. **Backdrop** — `bg-black/15–20`, **no blur**; bottom sheet on narrow screens, compact top-right or centered dialog on wide screens
 6. **a11y** — `role="dialog"`, `aria-modal="true"`, labelled title
-7. **Success** — short received state; auto-close ~1.5–2s; reset on next open
+7. **Success** — replace the form in place with one calm text line (`记下了，谢谢。` / `Got it. Thank you.`); no green toast, confetti, oversized check, or alert-card chrome; auto-close ~1.5–2s and reset on next open
 8. **Honeypot** — visually hidden `website` input, `tabIndex={-1}`, `autoComplete="off"`; never show in UI copy
+
+### Short visual recipe (implement this before improvising)
+
+| Layer | Recipe |
+|---|---|
+| Layout | 400–420px max width; 12–16px panel padding; header, 112px textarea, hairline footer; one primary action |
+| Type | Product body font; 15px/20 semibold title; 12px/20 hint; 14px/24 input; 12px action |
+| Shape | 1px product-border; 2–4px radius on desktop; only the mobile sheet gets larger top corners |
+| Color | Product canvas/paper panel, dark ink, muted secondary text; primary button uses ink-on-paper reversal |
+| Depth | One restrained shadow (~12% black); 15–20% scrim; zero backdrop blur |
+| Density | Entire idle panel roughly 220–260px tall; no hero-sized whitespace, stacked cards, tabs, or explanatory essay |
+| Copy | Chinese: `哪里不对劲？` / `一句话就够。` / `发送`; English: `What felt off?` / `One sentence is enough.` / `Send note` |
+
+**Do:** reuse product tokens, place the trigger beside existing utilities, keep the note visually subordinate to the app, and wire Chinese copy on Chinese surfaces.
+
+**Don't:** ship `Submit Feedback` / `提交反馈` as a generic SaaS heading, use a 50–60% dim-and-blur wall, center a heavily rounded card, add a toast-library success banner, or add UI dependencies just for this sheet.
 
 ### CSS primitives
 
 ```css
-.animate-fade-in { animation: fade-in 220ms ease-out both; }
-.animate-fade-out { animation: fade-out 220ms ease-out both; }
-.animate-pop-in { animation: pop-in 220ms ease-out both; }
-.animate-pop-out { animation: pop-out 220ms ease-out both; }
+.animate-fade-in { animation: fade-in 180ms ease-out both; }
+.animate-fade-out { animation: fade-out 180ms ease-in both; }
+.animate-sheet-in { animation: sheet-in 200ms ease-out both; }
+.animate-sheet-out { animation: sheet-out 180ms ease-in both; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-@keyframes pop-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-@keyframes pop-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(8px) scale(0.985); }
+@keyframes sheet-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in, .animate-fade-out, .animate-sheet-in, .animate-sheet-out { animation: none; }
 }
 ```
 
@@ -306,8 +340,11 @@ export const useFeedbackStore = create<{ open: boolean; setOpen: (v: boolean) =>
 }))
 ```
 
-Headers: `<FeedbackTrigger onClick={() => setOpen(true)} surface="landing|shell" />`  
-Root: `<FeedbackModal open={open} onOpenChange={setOpen} appName="my-app" />`
+Headers: `<FeedbackTrigger onClick={() => setOpen(true)} surface="landing|shell" language={locale.startsWith("zh") ? "zh" : "en"} />`
+
+Root: `<FeedbackModal open={open} onOpenChange={setOpen} appName="my-app" language={locale.startsWith("zh") ? "zh" : "en"} />`
+
+Map the host locale to `"zh" | "en"`; do not add a localization package for this component.
 
 If the project has **no** Zustand: parent state in `App` is enough — do not add a store dependency only for feedback.
 
@@ -321,8 +358,11 @@ If the project has **no** Zustand: parent state in `App` is enough — do not ad
 - [ ] Not bottom-right floating sales pill
 - [ ] Near language switcher / utility chrome
 - [ ] Iconify icon, no emoji trigger
+- [ ] Light 15–20% scrim; no backdrop blur or oversized rounded card
+- [ ] Chinese product uses Chinese copy; no generic `Submit Feedback` / `提交反馈` heading
 - [ ] Fade in **and** fade out
 - [ ] Outside click + Escape + X
+- [ ] In-place quiet success, not a toast-library demo
 - [ ] Diagnostics for server misconfig surfaced
 - [ ] Works on landing + app shell when both exist
 - [ ] One-channel success; attempts on failure
@@ -338,8 +378,10 @@ If the project has **no** Zustand: parent state in `App` is enough — do not ad
 | dieline-generator | Trigger + root modal + store | Robust (one-channel-ok, max length) — closest to skill |
 | BrainRush | In-App.tsx modal + WeChat tab; strong copy | Older all-must-succeed |
 | pep-words | Product-specific | Older all-must-succeed |
+| qiancheng-yusuan | Consumer being restyled in parallel; do not copy its old dim generic dialog back into the pack | Keep its existing GitHub + Telegram wiring |
+| chuhai-cloud | Consumer; adopt this skill default when its feedback chrome is next touched | Preserve installed pipeline contract |
 
-New work: **copy skill references**, then paint with product tokens/copy. When touching BrainRush/pep Functions, upgrade toward skill baseline (one-channel-ok + diagnostics) without forcing UI rewrites.
+New work: **copy skill references**, then paint with product tokens/copy. qiancheng-yusuan is a parallel consumer restyle, not the visual source of truth. When touching BrainRush/pep Functions, upgrade toward skill baseline (one-channel-ok + diagnostics) without forcing UI rewrites.
 
 ## Related skills
 

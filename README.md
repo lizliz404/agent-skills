@@ -32,7 +32,7 @@ These nine packs come from real pipelines on lizliz.xyz: they were built to get 
 - **WebGL Three.js Background Animation** — WebGL that blends into the page — config-driven, GPU-budgeted, full lifecycle hygiene · [webgl-threejs-background-animation.zip](skills/webgl-threejs-background-animation/webgl-threejs-background-animation.zip)
 - **Interactive Projects Stream** — Continuous clickable content stream — lane-track transport, accordion-style skill popups, D/H/P previews, zero deps · [interactive-projects-stream.zip](skills/interactive-projects-stream/interactive-projects-stream.zip)
 - **SEO Master** — Full-site SEO/GEO audit plus generative-engine citation measurement — evidence ladder, not vibes · [seo-master.zip](skills/seo-master/seo-master.zip)
-- **Feedback Pipeline** — Same-origin CF Pages feedback → GitHub Issues and/or Telegram; header chrome, not a SaaS FAB · [feedback-pipeline.zip](skills/feedback-pipeline/feedback-pipeline.zip)
+- **Feedback Pipeline** — Same-origin CF Pages feedback → GitHub Issues and/or Telegram; quiet bilingual product sheet, not a SaaS FAB · [feedback-pipeline.zip](skills/feedback-pipeline/feedback-pipeline.zip)
 
 ## Key Features
 
