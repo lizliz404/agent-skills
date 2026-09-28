@@ -2,17 +2,18 @@
 name: ai-native-mihomo
 description: >-
   Use when setting up, migrating, or troubleshooting a headless Clash-family
-  proxy stack (mihomo / Clash Meta core) on Linux in an AI-native way:
+  proxy stack (mihomo / Clash Meta core) on Linux or macOS in an AI-native way:
   headless core + REST API (external-controller) as the agent control surface,
-  rootless systemd + TUN system-wide transparent proxy via setcap, agent
-  self-heal of network failures, or deciding GUI-wrapper (FlClash, Clash
-  Verge Rev) vs headless. Also covers the CN-network download doctrine
-  (mirrors, human-phone relay) and API-driven proxy control (switch nodes,
-  health checks, reload, subscriptions), region-priority exit selection, and
-  safely ingesting a new profile. Matches "Clash proxy / TUN proxy / 梯子 /
-  机场落地" intents. Not for picking airports/subscriptions (human business)
-  or WireGuard-lane VPNs (this stack is proxying, not a VPN).
-version: 1.2.0
+  rootless service (systemd on Linux, launchd on macOS) + system-wide
+  transparent proxy via TUN, agent self-heal of network failures, or deciding
+  GUI-wrapper (FlClash, Clash Verge Rev) vs headless vs coexistence. Also covers
+  the CN-network download doctrine (mirrors, human-phone relay) and API-driven
+  proxy control (switch nodes, health checks, reload, subscriptions),
+  region-priority exit selection, and safely ingesting a new profile. Matches
+  "Clash proxy / TUN proxy / 梯子 / 机场落地" intents. Not for picking
+  airports/subscriptions (human business) or WireGuard-lane VPNs (this stack is
+  proxying, not a VPN).
+version: 1.3.0
 author: Liz (lizliz.xyz)
 license: MIT
 ---
@@ -29,17 +30,44 @@ the contract agents build on.
 
 ```
 airport profile (yaml) ──security patch──▶ config.yaml ◀── mihomo binary (headless)
-                                                │                │  (setcap: TUN without root)
-                                    systemd --user service   REST API 127.0.0.1:9090
+                                                │                │  (Linux: setcap for rootless TUN;
+                                                │                 │   macOS: TUN owned by one party, see Platform scope)
+                                    service (systemd / launchd)  REST API 127.0.0.1:9090
                                                 │                │
                                      TUN gvisor + auto-route   agent: curl / jq / MCP
 ```
 
 Properties that matter:
-- **Rootless**: `systemd --user` + file capabilities. No root-owned configs, so
-  agents can manage everything without sudo.
+- **Rootless service**: `systemd --user` on Linux, `launchd` LaunchAgent on
+  macOS. No root-owned configs, so agents can manage everything without sudo.
 - **Declarative**: one yaml = whole state. Reproduce = copy 3 files.
 - **Observable**: every dial, rule match, and delay is one GET away.
+
+## Platform scope — Linux primary, macOS sidecar
+
+v1.2.x was Linux-only in its commands and would mislead on macOS. The pattern
+is cross-platform; the mechanisms are not. Read this table before running any
+step:
+
+| Concern | Linux (reference path) | macOS (this skill supports, differently) |
+|---|---|---|
+| Service | `systemd --user` unit, `systemctl --user ...` | `launchd` LaunchAgent plist (`~/Library/LaunchAgents/*.plist`), `launchctl load/unload/list` |
+| Rootless TUN | `setcap cap_net_admin,cap_net_bind_service=ep <binary>` + `getcap` re-check | **No `setcap`.** TUN is a Network Extension / privileged helper owned by one party (normally Clash Verge Rev + its helper bundle). Headless sidecars run with `tun.enable: false` and ride the owner's TUN or use explicit `-x` proxying |
+| Privilege one-off | `pkexec <cmd>` (native auth dialog) | **No `pkexec`.** Privilege = user clicks through System Settings → Network Extension / helper install dialog by hand; the agent prepares everything around it and never touches a password prompt |
+| Route inspection | `ip rule show` + `ip route show table 2022`, `ip link show Meta` | `netstat -rn -f inet` (look for `198.18.0.0` halves via a `utun` device) + `ifconfig` (`utun` with `inet 198.18.0.1 --> 198.18.0.1`), no policy-table concept |
+| DNS check | `getent hosts <name>` (fake-ip `198.18.x.x` = hijack working) | `dscacheutil -q host -a name <name>`; `getent` does not exist. `scutil --dns` shows resolver order |
+| Logs | `journalctl --user -u mihomo -f` | `StandardOutPath`/`StandardErrorPath` files named in the plist + `GET /connections`; there is no journal |
+| Binary | `linux-amd64.gz` (or arm64) from `MetaCubeX/mihomo` | `darwin-arm64.gz` (Apple Silicon) / `darwin-amd64.gz` (Intel) from the same releases; `mihomo -v` must print `darwin` |
+
+Coexistence doctrine (macOS default, Linux-legal too): **exactly one party
+owns the TUN.** On macOS that is almost always the installed GUI (Verge) —
+it already holds the helper approval, the `utun` device, and the fake-ip
+`198.18/16` routes. Additional headless cores are **policy sidecars**: distinct
+`mixed-port`, distinct `external-controller` port, `tun.enable: false`,
+explicit upstream (`http`/`socks5` to the owner) or `DIRECT` bypass rules for
+the domains the owner must not see. Never enable two TUNs, never reuse a port,
+never let a sidecar rewrite the owner's `dns:`/`tun:` blocks. Port/controller
+conflict check is a pre-flight step on every install (RUNBOOK §0).
 
 ## Complexity doctrine — native config first
 
@@ -52,7 +80,7 @@ change**, not a program. Escalate only as far as the problem forces you:
    — actual failover behaviour is version- and nesting-dependent (see Group
    behaviour). Most "wrong node" complaints are a group type that cannot
    express the rule you actually want.
-2. **Minimal selector** (a ~100-line loop + `systemd` timer): **only** when the
+2. **Minimal selector** (a ~100-line loop + a platform scheduler): **only** when the
    requirement is a *strict region hierarchy* — an ordered priority between
    regions that no native group type expresses. That is the entire reason the
    loop is allowed to exist.
@@ -94,7 +122,7 @@ A ladder; try in order, never grind a rung:
 ## Privilege doctrine
 
 The agent must never touch a password prompt — `sudo` interactively is
-unreachable by design, and that is a feature. Ladder:
+unreachable by design, and that is a feature. Ladder (Linux):
 
 1. **Design root away**: `systemd --user` service +
    `setcap cap_net_admin,cap_net_bind_service=ep <binary>` gives TUN (and port
@@ -104,6 +132,18 @@ unreachable by design, and that is a feature. Ladder:
    type the password there, the agent orchestrates everything around it.
 3. `setcap` is lost whenever the binary is replaced (update/reinstall). Re-check
    with `getcap` after every binary change.
+
+macOS ladder (no `setcap`, no `pkexec` — both absent):
+
+1. **Design root away differently**: one TUN owner (Verge + helper bundle),
+   headless sidecars with `tun.enable: false`. Agent-editable scope = sidecar
+   yaml + plist + ports, never the helper install.
+2. **Human-in-the-loop for the one privileged click**: Network Extension /
+   helper approval in System Settings. The agent stages the plist and config,
+   states exactly which dialog the human will see, then stops and waits.
+3. Binary replacement on macOS loses nothing capability-wise (there are no
+   file caps), but re-verify with `mihomo -v` (must say `darwin arm64`) and
+   `launchctl list | grep <label>` after every swap.
 
 ## API cookbook
 
@@ -130,7 +170,8 @@ curl -s -X DELETE "$API/proxies/$GROUP"           # Selector type excluded
 curl -s -X PUT "$API/providers/proxies/$NAME"     # refresh a subscription provider
 curl -s "$API/connections" | jq '.connections | length'   # null = inbound dead
 curl -s -X POST "$API/restart"
-journalctl --user -u mihomo -f                    # logs
+# logs: Linux `journalctl --user -u mihomo -f`; macOS: tail the plist's
+# StandardOutPath/StandardErrorPath (no journal)
 ```
 
 ## Node strategy — region priority is a different axis from latency
@@ -231,8 +272,9 @@ the part that catches it. Treat ~2–3× the health interval as "fresh".
    own health data) upgrade to a higher-priority/cheaper node; do not
    duplicate probes within one run. No fixed global cap (a `[:6]` slice silently
    excludes exactly the backstop you need) and no duplicate full scans.
-   Bound the run with a wall-clock budget and the service's
-   `TimeoutStartSec`; `OnUnitInactiveSec` + lock prevents overlap.
+   Bound the run with a wall-clock budget and the scheduler's timeout
+   (systemd `TimeoutStartSec`, launchd `TimeOut`); non-overlap via
+   `OnUnitInactiveSec` + lock (Linux) or `StartInterval` + lock (macOS).
 4. Current dead → switch now. Higher priority / cheaper tier recovered → switch
    after cooldown. Same region + same tier → hold.
 
@@ -240,10 +282,12 @@ the part that catches it. Treat ~2–3× the health interval as "fresh".
 Persist `last_switch` with an **atomic write** (`tmp` + `os.replace`) so a crash
 mid-write cannot corrupt state.
 
-**Run**: a `systemd --user` timer, first run a few seconds after boot
-(`OnActiveSec=15s`), then `OnUnitInactiveSec=60s` (not `OnCalendar` — the next
-run starts 60 s *after the previous finished*, so a slow boot-scan can never
-pile up). Guard with a lock file; a second instance exits quietly. Prefer one
+**Run**: a platform scheduler — Linux: `systemd --user` timer, first run a few
+seconds after boot (`OnActiveSec=15s`), then `OnUnitInactiveSec=60s` (not
+`OnCalendar` — the next run starts 60 s *after the previous finished*, so a
+slow boot-scan can never pile up); macOS: `launchd` plist with
+`StartInterval 60` (same non-piling semantics) + `KeepAlive`. Either way guard
+with a lock file; a second instance exits quietly. Prefer one
 explicit timer unit over `ExecStartPost` hooks: a post hook that sleeps or
 does network work blocks service readiness (and its failure can mark the
 service failed); a hook that merely schedules an async transient timer
@@ -251,7 +295,7 @@ returns fast but adds transient-unit lifecycle/observability complexity. If a
 hook is used at all, prefix with `-` and keep it trivial.
 Emit one line per run in a fixed shape — `OK <current>`,
 `HOLD <current> — <reason>`, `SWITCH <from> -> <to>`, `ERROR <why>` — so
-`journalctl` is readable at a glance.
+`journalctl` (Linux) or the plist log file (macOS) is readable at a glance.
 
 ## Ingesting a new profile (yaml / json / subscription)
 
@@ -314,14 +358,14 @@ Rules that matter:
 ## TUN debugging playbook
 
 TUN blackout = one broken layer. Isolate with decisive tests, top to bottom;
-each test has a binary reading:
+each test has a binary reading. Linux command first, macOS equivalent after:
 
-| Layer | Decisive test | Reading |
+| Layer | Decisive test (Linux / macOS) | Reading |
 |---|---|---|
-| DNS hijack | `getent hosts google.com` | fake-ip `198.18.x.x` = hijack working |
-| Inbound to core | curl any site, then `GET /connections` | `null` = traffic never reaches core → stack problem |
-| Hijack routes | `ip rule show` **and** `ip route show table 2022` | a policy rule routed to a dedicated table (this machine: `2022`) **and** `default via <tun-ip> dev Meta` inside it |
-| Outbound escape | `curl --interface <phys-iface> https://223.5.5.5` | works = bound sockets escape TUN rules; core must bind its outbounds (`auto-detect-interface: true` / top-level `interface-name`) |
+| DNS hijack | `getent hosts google.com` / `dscacheutil -q host -a name google.com` | fake-ip `198.18.x.x` = hijack working |
+| Inbound to core | curl any site, then `GET /connections` (both) | `null` = traffic never reaches core → stack problem |
+| Hijack routes | `ip rule show` **and** `ip route show table 2022` / `netstat -rn -f inet` + `ifconfig` (`utun` with `inet 198.18.0.1`) | Linux: a policy rule to a dedicated table **and** `default via <tun-ip> dev Meta` inside it; macOS: `198.18.0.0` halves routed via a `utun` device |
+| Outbound escape | `curl --interface <phys-iface> https://223.5.5.5` (both) | works = bound sockets escape TUN rules; core must bind its outbounds (`auto-detect-interface: true` / top-level `interface-name`) |
 
 Known fixes, in order of likelihood:
 - `tun.stack: mixed` dead on some setups → `gvisor` (pure userspace, always
@@ -337,11 +381,13 @@ Known-harmless log noise: UDP QUIC dials `can't resolve ip: couldn't find ip`
 
 Two traps when reading this layer:
 
-- **`auto-route` installs a policy rule + a dedicated table, not a default in
-  the main table.** `ip route` alone will look like TUN never took over. Check
-  `ip rule show` (this machine: a rule sending traffic to table `2022`) and
+- **Linux `auto-route` installs a policy rule + a dedicated table, not a
+  default in the main table.** `ip route` alone will look like TUN never took
+  over. Check `ip rule show` (the Linux reference used table `2022`) and
   then `ip route show table 2022`; confirm the device (`Meta`) is up, and
-  finish with a plain `curl` (no `-x`) hitting 204.
+  finish with a plain `curl` (no `-x`) hitting 204. **On macOS there is no
+  policy table**: read `netstat -rn -f inet` (fake-ip halves via `utun`) plus
+  `ifconfig` for the `utun` device itself, then the same plain-curl 204.
 - **Do not read a bare `5353` grep as a port conflict.** Check *which* socket:
   mihomo's own DNS listener binds its configured address, while mDNS/Avahi and
   Chrome bind the multicast address `224.0.0.251:5353`. Seeing both is normal.
@@ -349,23 +395,52 @@ Two traps when reading this layer:
   TUN not yet released — re-check after a clean restart before calling it a
   real failure.
 
-## Why the GUIs are disposable — and why full delegation wins
+## Why the GUIs win on desktop — and where headless still earns its place
 
-**A GUI client is a renderer over the same REST API.** Switch node, health
-check, mode toggle, reload, subscription update — the operational surface an
-agent needs is all API. That is not a literal 1:1 with every GUI widget
-(rule-order editing UX, profile-switch conveniences and subscription-refresh
-semantics differ between clients), but nothing an agent depends on is
-gui-only. The GUI is a *rendering preference*, not an interface anyone needs.
+**A GUI client is a renderer over the same REST API — but on macOS the
+renderer also owns the one thing agents cannot grant themselves: the TUN.**
+Switch node, health check, mode toggle, reload, subscription update — the
+operational surface an agent needs is all API. That is not a literal 1:1 with
+every GUI widget (rule-order editing UX, profile-switch conveniences and
+subscription-refresh semantics differ between clients), but nothing an agent
+depends on is gui-only. The GUI is a *rendering preference*, not an interface
+anyone needs — except for privilege.
 
-Its costs, meanwhile, compound on exactly the machines agents run on:
+Honest reflection on v1.2.x: it told desktop users to "drop the shell" while
+offering no replacement for what the shell actually does for them. That is why
+a user keeps Clash Verge Rev open instead of running this skill:
+
+- **One-click TUN**: Verge ships a privileged helper bundle; the user approves
+  once in System Settings and TUN works. Headless on macOS has no equivalent
+  one-liner — `setcap`/`pkexec` do not exist, and the skill gave no plist, no
+  dialog script, no "who owns the TUN" rule. Two TUNs fight; the skill never
+  said which one must yield.
+- **Zero-YAML onboarding**: subscription URL in, nodes out, latency bars, click
+  to switch. The skill demanded curl + jq + hand-merged yaml before the first
+  204 — all cost, no first win.
+- **No coexistence path**: the skill read as migration-or-nothing. On a machine
+  that already routes through Verge's TUN, "migrate" means breaking working
+  internet for a doctrine. Nobody takes that trade.
+- **No conflict pre-flight**: ports (`7890`/`9090`), controllers, data dirs and
+  the `utun` device were assumed free. On a lived-in Mac they never are.
+
+Corrected stance (v1.3.0): **Verge (or any installed GUI) owns the TUN on
+macOS; headless cores join as policy sidecars.** The agent's value is not
+"replace the GUI" but the things the GUI cannot do: region-priority policy the
+group types cannot express, staged profile ingestion that never rewrites local
+`dns:`/`tun:`/security, API-driven switch + verify + rollback with the blast
+radius stated up front. Keeping the GUI installed is not a cold spare — on
+macOS it is the supported TUN provider. Architect as: GUI = TUN + subscription
+intake, sidecar = agent policy + verification.
+
+The headless path still wins where the GUI structurally cannot follow:
 
 - **Bundled-library rot**: AppImage/Electron shells carry legacy libstdc++ and
-  friends that break against rolling-release mesa (the EGL-crash class).
+  friends that break against rolling-release mesa (the EGL-crash class, Linux).
 - **Core lag**: GUIs ship stale cores; the headless path updates the core
   alone, in one file swap.
-- **Opaque state**: profiles live in app-private SQLite/prefs stores no agent
-  can safely mutate. Headless mihomo's entire state is one yaml.
+- **Opaque state**: profiles live in app-private stores no agent can safely
+  mutate. Headless mihomo's entire state is one yaml.
 
 **Delegation is the modern control loop.** The agent is simultaneously the
 first to *feel* a proxy failure (its own fetches time out before a human
@@ -412,7 +487,8 @@ Cheap to ask, expensive to skip. Run them over any proxy change:
   disagree. Decouple strategy from node data: nodes churn weekly, policy barely
   moves.
 - **Observable / reversible** — at 3 a.m., what do you read? The surfaces are
-  `journalctl -u mihomo`, `/proxies` and `/connections`, plus a small structured
+  the service log (Linux `journalctl -u mihomo`, macOS plist log file),
+  `/proxies` and `/connections`, plus a small structured
   state file (last success, input hashes, node/region counts, last error) —
   credential-free, and with the last known-good config one command away.
 - **Auditable / recoverable / secure** — log input hashes + node counts per
@@ -437,24 +513,35 @@ feeling:
   observed; "traffic now uses the new node" is inferred unless you probed it;
   "the config is loaded" is unverified until a request travels through the
   running core.
-- **Do not measure with stale logs.** Narrow the `journalctl --since` window to
-  the incident, and re-derive counts you took before a restart — a running
+- **Do not measure with stale logs.** Narrow the log window to
+  the incident (`journalctl --since` on Linux, time-bounded `tail`/`grep` on
+  the plist log file on macOS), and re-derive counts you took before a restart — a running
   counter and a windowed count look identical and mean different things.
 - **Never paste secrets**: `secret:`, UUIDs, REALITY `public-key`/`short-id`,
   subscription hostnames, or exit IPs. Reference them, don't quote them.
 
-## This machine's instantiation
+## Reference instantiations (no secrets in docs — ever)
 
-Concrete instance of the pattern (paths/secret are machine-specific):
+Linux reference (the v1.2.x machine):
 
 | Piece | Value |
 |---|---|
-| Binary | `~/.local/bin/mihomo` (official v1.19.30, caps via setcap) |
+| Binary | `~/.local/bin/mihomo` (official release, caps via setcap) |
 | Config | `~/.config/mihomo/config.yaml` (airport profile + patches, `tun.stack: gvisor`) |
-| Geo data | `~/.config/mihomo/{GeoIP,GeoSite}.dat` (reused from FlClash data dir) |
+| Geo data | `~/.config/mihomo/{GeoIP,GeoSite}.dat` (reused from a GUI data dir) |
 | Service | `~/.config/systemd/user/mihomo.service` → `systemctl --user ...` |
-| API | `http://127.0.0.1:9090`, secret: real value in `~/.config/mihomo/config.yaml` (never copy secrets into docs) |
-| Proxy port | `127.0.0.1:7890` (mixed, `allow-lan: true` for LAN devices) |
-| Legacy GUI | FlClash AppImage extracted at `~/Downloads/squashfs-root`; launch with `LD_LIBRARY_PATH=lib:syslibs` (bundled legacy libstdc++ breaks EGL on rolling mesa — bypass bundled libs, symlink only `libkeybinder-3.0.so.0`) |
+| API | `http://127.0.0.1:9090`, secret lives only in the local config file |
+| Proxy port | `127.0.0.1:7890` (mixed) |
 
-Full reproduction steps with per-step completion criteria: [RUNBOOK.md](RUNBOOK.md).
+macOS coexistence shape (Verge owns TUN, sidecars do policy — observed on a
+lived-in Mac, ports/labels as structure, credentials omitted):
+
+| Piece | Value |
+|---|---|
+| TUN owner | Clash Verge Rev (helper bundle installed, `utun` + `198.18/16` routes, main `mixed-port`) |
+| Sidecar A | own `mihomo` (darwin arm64) + own data dir, `tun.enable: false`, distinct `mixed-port` + distinct `external-controller`, LaunchAgent plist with `RunAtLoad` + `KeepAlive`, stdout/stderr to its own log files |
+| Sidecar B | same shape as A, different ports/controller; `rules:` keep app-critical domains on `DIRECT` or forward to the owner via an `http` upstream — never into an exit that rejects them |
+| Pre-flight | `lsof -iTCP -sTCP:LISTEN -P -n` shows no port/controller collision; `netstat -rn -f inet` shows exactly one fake-ip `utun`; `launchctl list` shows each label once |
+
+Full reproduction steps with per-step completion criteria (Linux track +
+macOS sidecar track): [RUNBOOK.md](RUNBOOK.md).
