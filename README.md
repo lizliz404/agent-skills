@@ -1,16 +1,16 @@
 # Agent Skills
 
-Clone-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Twelve packs in `skills/`, each just a folder. No installers, no frameworks, no signup.
+Clone-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Thirteen packs in `skills/`, each just a folder. No installers, no frameworks, no signup.
 
 Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same packs, browsable online.
 
 ```mermaid
 graph TD
-    README["README.md — you are here"] --> SKILLS["skills/ · twelve packs<br/>each: SKILL.md + scripts/ + references/ (+ evals/)"]
+    README["README.md — you are here"] --> SKILLS["skills/ · thirteen packs<br/>each: SKILL.md + optional scripts/ + references/ (+ evals/)"]
     SKILLS --> VOICE["Voice & content<br/>doubao-tts · video-script-conversion"]
     SKILLS --> VISUAL["Replication & visual<br/>landing-page-replication-v5 · webgl-threejs-background-animation<br/>interactive-projects-stream · design-md-visual-system"]
     SKILLS --> TOOLS["Data & tooling<br/>geo-job-hunt · seo-master · clerk-auth · feedback-pipeline"]
-    SKILLS --> NET["Network / infra<br/>ai-native-mihomo · ai-native-proof-ledger"]
+    SKILLS --> NET["Network / infra<br/>ai-native-mihomo · ai-native-proof-ledger · cloudflare-cost-guard"]
     SKILLS -.-> SITE["lizliz.xyz/skills"]
     SKILLS -.->|"soft route"| DT["design-templates asset pack"]
 ```
@@ -19,7 +19,7 @@ graph TD
 
 **Agent skills are instruction packs for coding AIs.** Instead of re-explaining your process every session — "capture the page, check density, verify offline" — you hand the agent a skill folder and it follows the workflow, runs the scripts, and hits the same gates you would.
 
-These packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. (One exception: **AI-Native Proof Ledger** is a researched reference skill, built from dated primary sources rather than a production pipeline.) A skill is just a folder — `SKILL.md` (the workflow map) plus `scripts/` and `references/` that the agent loads when it needs them.
+These packs come from real pipelines on lizliz.xyz: they were built to get actual work done, then packaged so anyone can reuse them. **AI-Native Proof Ledger** is a researched reference skill; **Cloudflare Cost Guard** combines official documentation with reviewed operational lessons; runtime coverage and delivery still require acceptance. Neither is presented as a production-validated pipeline. A skill is just a folder — `SKILL.md` (the workflow map) plus optional `scripts/` and `references/` that the agent loads when it needs them.
 
 ## The Packs
 
@@ -47,13 +47,14 @@ These packs come from real pipelines on lizliz.xyz: they were built to get actua
 - **Clerk Auth** — Add Clerk authentication via the Clerk CLI — Windows-capable wrapper, split credential storage, Next.js matcher check · [clerk-auth/](skills/clerk-auth/)
 - **AI-Native Mihomo** — Headless mihomo (Clash Meta) core + REST API as the agent control surface — self-heal, proxy doctrine, TUN debug playbook, runbook · [ai-native-mihomo/](skills/ai-native-mihomo/)
 - **AI-Native Proof Ledger** — Tamper-evident, independently verifiable history for SaaS and agents — mechanism ladder L0–L5, witnessed checkpoints, anchoring, claim rubric · [ai-native-proof-ledger/](skills/ai-native-proof-ledger/)
+- **Cloudflare Cost Guard** — Audit runaway billing risks and adapt quiet monitoring: native alerts first, hourly routine checks, evidence-based coverage and safe handoffs. Merged workflow with frequency-migration and delivery scenarios; no bundled monitoring daemon · [cloudflare-cost-guard/](skills/cloudflare-cost-guard/) · [cross-check report](docs/cloudflare-cost-guard-crosscheck-v0.2.0.md)
 
 ## Key Features
 
 - **Clone and use** — A pack is a folder: copy it into your agent's skills directory, done. No npm, no build step, no config.
 - **Agent-agnostic** — Any coding agent that reads `SKILL.md` can follow the workflow; scripts are stdlib-only Python where possible.
-- **Measurable, not vibes** — Every pack ships machine gates: probes, checks, character counters, eval scripts. You can verify the work instead of trusting it.
-- **Production-tested** — These are the actual packs running lizliz.xyz pipelines, not toy examples.
+- **Evidence-led** — Execution packs include probes and checks where useful; reference and workflow packs state their validation requirements and limits.
+- **Validation is explicit** — Production pipeline packs, researched references, and initial workflows are identified separately.
 - **Free, MIT** — Use it, modify it, share it.
 
 ## Installation
@@ -104,7 +105,7 @@ Every pack follows the same shape — **progressive disclosure**:
 | `SKILL.md` | The workflow map and rules — loaded when the skill is invoked |
 | `scripts/` | Run when a step needs computation (capture, transcribe, count, apply) |
 | `references/` | Deep notes loaded on demand: API details, cases, checklists |
-| `evals/` | Where a pack ships them: gates that prove the workflow did its job |
+| `evals/` | Where provided: behavior scenarios or executable checks; declared cases alone are not passing test evidence |
 
 The agent reads the map first and pulls in only the files the current task needs.
 

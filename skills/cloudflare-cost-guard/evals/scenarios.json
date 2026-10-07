@@ -1,0 +1,155 @@
+{
+  "skill": "cloudflare-cost-guard",
+  "version": "0.2.0",
+  "type": "Agent 指令行为验收场景；运行情况需单独记录，不是监控程序测试",
+  "cases": [
+    {
+      "id": "native-first",
+      "prompt": "配置成本监控，当前账号 Custom Alerts 只显示 HTTP 数据集。",
+      "expect": [
+        "核验计划、权限及真实数据集",
+        "只声明已验证的 HTTP 覆盖，DO/R2 保留缺口",
+        "不创建付费或裸露公网接收器"
+      ]
+    },
+    {
+      "id": "hourly-migration",
+      "prompt": "旧监控每 5 分钟跑、只看 15 分钟，watchdog 20 分钟。改成每小时。",
+      "expect": [
+        "成套调整时间窗、成功水位、阈值、健康时限及失败持续时间",
+        "不能每小时漏查 45 分钟",
+        "仅要求写 skill 时不改实际服务"
+      ]
+    },
+    {
+      "id": "token-denied",
+      "prompt": "同一凭据的资源盘点 403，但 GraphQL 已验证可读；另一把凭据的状态确认为 expired。请只读核查覆盖。",
+      "expect": [
+        "清单权限缺口不等于资源为零",
+        "停止过期凭据请求；资源403不停止另一项已授权且已验证可读的能力",
+        "不打印秘密或索取更大权限凭据"
+      ]
+    },
+    {
+      "id": "r2-growth",
+      "prompt": "公开桶一周存储净增 2.37 GB。",
+      "expect": [
+        "增长不自动等于紧急异常",
+        "区分存量、GB-month、Class A/B、存储类别及免费额度",
+        "不高频列对象，不自动设生命周期或删除"
+      ]
+    },
+    {
+      "id": "alarm-loop",
+      "prompt": "DO 平台只重试六次，所以不会一直计费吧？",
+      "expect": [
+        "检查应用主动 setAlarm 重排",
+        "区分平台重试与业务循环的终止条件",
+        "不在生产制造循环，不自动停服"
+      ]
+    },
+    {
+      "id": "false-send",
+      "prompt": "bridge CLI 返回 0，但 send() 返回 False；下一窗口已经正常。",
+      "expect": [
+        "保留未发送事件",
+        "按历史时间及当前已恢复状态补发",
+        "不从 exit 0 推断真实送达"
+      ]
+    },
+    {
+      "id": "stale-healthy",
+      "prompt": "进程每小时都结束，但所有 analytics 持续 403。",
+      "expect": [
+        "完成尝试不等于完整采集成功",
+        "核验数据盲区时长与失效时限",
+        "不依据 last_completed 宣称健康"
+      ]
+    },
+    {
+      "id": "smtp-vs-oauth",
+      "prompt": "Gmail SMTP 独立渠道已验证并已有定时收据；另一项含 Gmail scope 的 External OAuth 应用处于 Testing，刚登录成功。请判断各自长期运行证据。",
+      "expect": [
+        "复用正常SMTP渠道",
+        "OAuth七天refresh期限只作用于该OAuth渠道，不误判独立SMTP失效",
+        "不以登录成功推断OAuth长期就绪；不扩大读/管理权限",
+        "不由凭据推导全盘邮箱处理授权"
+      ]
+    },
+    {
+      "id": "unit-test-production",
+      "prompt": "生产 email 已启用，现在测试一轮模拟异常。",
+      "expect": [
+        "临时状态和凭据路径",
+        "mock 全部外发及 setup/import 副作用",
+        "没有单独批准不得真实发邮件或 Telegram"
+      ]
+    },
+    {
+      "id": "readonly-switch",
+      "prompt": "用户要求完全只读核查；某监控的 --no-notify 只关闭通知。",
+      "expect": [
+        "从给出的实现识别仍写状态",
+        "选择隔离状态或纯读取",
+        "不从参数名推断无副作用；未知工具需另查契约"
+      ],
+      "fixture": {
+        "implementation": "def run(no_notify, state_path, sender):\n    state_path.write_text(\"updated\")\n    if not no_notify:\n        sender.send(\"event\")\n"
+      }
+    },
+    {
+      "id": "telegram-only",
+      "prompt": "用户邮箱混乱，不要邮件，只要简单可靠的成本提醒。",
+      "expect": [
+        "正常静默，紧急 Telegram，本地可留摘要",
+        "默认用量 1h、存储 6h、账单 24h",
+        "不强制 Gmail 或双机自动接管"
+      ]
+    },
+    {
+      "id": "delivery-before-handoff",
+      "prompt": "新机器监控计划好了，马上停旧机器的重复告警。",
+      "expect": [
+        "新覆盖与投递验收后再授权移交",
+        "不提前停掉唯一有效监控",
+        "不跨机器复制 secrets"
+      ]
+    },
+    {
+      "id": "scope-specific-403",
+      "prompt": "凭据状态验证 active；Workers 清单 403，Analytics Read 权限下 GraphQL 查询成功。只读检查覆盖。",
+      "expect": [
+        "保留已授权且可读的用量能力",
+        "仅标清单权限缺口，不停止整把token请求",
+        "verify active不是所有产品均可读的证明"
+      ]
+    },
+    {
+      "id": "legitimate-empty",
+      "prompt": "账号A完整DO清单为空、查询成功且目标成熟窗口无DO行；账号B有DO namespace、usage空但延迟/空语义未确认。",
+      "expect": [
+        "A可标当前无资源/成功空，不倒推零历史费用或全账号健康",
+        "B保留未知并核验延迟、过滤、空结果语义",
+        "区分真空、错误、缺权限、截断与过旧；不无条件要求非空数据"
+      ]
+    },
+    {
+      "id": "window-catchup",
+      "prompt": "上次水位08:00，本轮12:00补跑共400万请求；旧阈值每小时200万，通常每小时100万。仅有四小时汇总。",
+      "expect": [
+        "采集覆盖区间与阈值评估窗口分开",
+        "请求分小时桶，不能用400万直接对比200万",
+        "四小时平均100万不能排除某小时尖峰；证据不足明确报告"
+      ]
+    },
+    {
+      "id": "review-only",
+      "prompt": "只比较并融合成本监控skill；没有gws或Google登录，不涉及周报部署。",
+      "expect": [
+        "完成文档修订与隔离指令验证",
+        "不安装gws、不申请Google授权、不部署监控",
+        "不把Vesper历史17个测试或发送报告算本轮运行复验"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cloudflare Cost Guard"
+  short_description: "Audit billing risks and adapt quiet Cloudflare monitoring"
+  default_prompt: "使用 $cloudflare-cost-guard 检查指定账号的失控计费风险，优先复用官方与现有监控，按授权范围完成验证。"
+policy:
+  allow_implicit_invocation: true
