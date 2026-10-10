@@ -1,18 +1,18 @@
 # Quality rubric & audit blockquote
 
-Score Genre **A** (visual system) 0–10. Brand briefs use a separate B score — do not fail a good B-doc for missing slide chrome.
+Optional audit for Genre **A** (visual system) 0–10. Score applicable decision coverage, not document length. Short CSS-backed contracts can pass without YAML or all corpus headings. Brand briefs use a separate B score; do not fail a good B-doc for missing slide chrome.
 
 ## Genre A dimensions (each 0–2, sum → /10)
 
 | Dim | 0 | 1 | 2 |
 |---|---|---|---|
-| **Tokens** | No/broken YAML | Colors+fonts only | Full roles: colors, type scale, spacing, components w/ descriptions, refs `{colors.x}`; aliases when roles ≠ primitives |
-| **Thesis** | Generic "modern clean" | Some mood words | Cultural refs + surface model + depth model + anti-reference |
-| **Signature** | None | A few "prefer" tips | Named non-optional treatments when element type appears |
-| **Defaults + Do/Don't** | Missing | Vague pairs | Concrete reach-for-X + specific bans |
-| **Completeness** | <3 body sections | Core Google sections only | + Responsive, CJK, Iteration, Known Gaps (or explicit N/A) |
+| **Tokens / ownership** | Values invented or no source | Some roles/source unclear | Runtime source + relevant roles/aliases explicit; valid YAML refs when using portable mode |
+| **Direction** | Generic "modern clean" | Mood without implementation consequences | Audience/density + surface/accent/depth policy + what looks wrong |
+| **Distinguishing rules** | Agent must invent treatment | Preferences lack boundaries | 1–3 conditional, actionable rules; existing variant references may suffice |
+| **Defaults + boundaries** | Missing | Vague pairs | Concrete defaults + likely mistakes prevented; unrelated color domains stay independent |
+| **Change + acceptance** | No edit/test path | Partial instructions | Cheap change path, representative acceptance, relevant responsive/CJK/motion/gaps |
 
-**Pass bar:** ≥7/10 and Signature ≥1. Below that = garbage-or-stub relative to soft-editorial.
+**Optional pass bar:** ≥7/10 and distinguishing rules ≥1. A low score identifies missing decisions, not a reason to add pages. No scoring ritual for small edits; a concise actionable contract beats padded corpus imitation.
 
 ## Genre B dimensions (brand/distribution brief) — quick /10
 
@@ -32,9 +32,9 @@ Score Genre **A** (visual system) 0–10. Brand briefs use a separate B score �
 - `rewrite` — wrong genre or <5/10 with no salvageable structure
 - `archive-stub` — template sketch, not production truth
 
-## Prepend audit blockquote (active repos)
+## Audit report (only when requested)
 
-Insert **immediately after** YAML frontmatter closing `---` (before H1 / existing diagnosis). Do not destroy existing Chinese diagnosis — stack audits.
+Prefer a concise response, not permanent boilerplate in every project. If asked to persist the audit, place it after YAML (or after H1 in short mode), preserve meaningful diagnosis, and replace a superseded audit instead of stacking history; Git already preserves it.
 
 ```markdown
 > **DESIGN.md quality audit** · YYYY-MM-DD · gold: beautiful-html-templates/soft-editorial
@@ -51,16 +51,17 @@ Keep ≤25 lines. No body rewrite in audit-only passes.
 
 ## Fast fail checklist (agent self-review before shipping A)
 
-- [ ] `description` is a full thesis paragraph, not a tagline
-- [ ] ≥1 Signature Treatment marked non-optional
+- [ ] Direction states density/surface/accent decisions, not just a tagline
+- [ ] 1–3 distinguishing rules are actionable when the relevant element appears
 - [ ] Type roles do not overlap (display vs body vs chrome)
 - [ ] Accent policy stated (one accent / multi-pastel non-semantic / mono ink-only)
 - [ ] Density philosophy names broken states
-- [ ] Components have `description:`
+- [ ] Relevant component defaults point to existing variants; portable YAML components have `description:`
 - [ ] Token ladder clear: primitives → aliases/roles → component refs (no invented hex)
-- [ ] Iteration Guide has ≥5 additive rules
-- [ ] Known Gaps lists real debts
-- [ ] Hex quoted; negative letter-spacing quoted
+- [ ] Change path names the actual source and a representative acceptance check
+- [ ] Gaps are genuine; no invented debts or irrelevant section filler
+- [ ] In YAML mode, hex and negative letter-spacing are quoted
 - [ ] If bilingual product: CJK pairing + known gap for the signature move
-- [ ] Lint clean when claiming Google-shaped structure (`npx -y @google/design.md lint`)
+- [ ] Lint clean when claiming Google-shaped structure; short CSS-backed mode does not claim it
+- [ ] No duplicated numeric truth, minimum line count, mandatory all-component install or showcase
 - [ ] Not mistaken for Genre B / not DTCG-only JSON posing as DESIGN.md

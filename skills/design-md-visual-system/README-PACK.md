@@ -1,6 +1,6 @@
 # DESIGN.md Visual System — skill pack
 
-Implementation-grade **Genre A** DESIGN.md authoring for coding agents: YAML tokens + prose (Signature Treatments, Defaults, Do/Don't, CJK, Iteration, Known Gaps).
+Implementation-grade **Genre A** DESIGN.md authoring for coding agents, grounded in Google DESIGN.md and shadcn/ui practice. Incremental product work updates affected decisions; complete systems retain token roles, rationale, Defaults, Signatures, CJK, Iteration and Gaps. Reuse foundations and shared variants; verify scope-relevant UI. Neither document length nor brevity is a quality metric.
 
 ## Contents
 
@@ -11,7 +11,9 @@ design-md-visual-system/
 └── references/
     ├── anatomy-and-patterns.md
     ├── quality-rubric.md
-    ├── skeleton.md
+    ├── skeleton.md        ← short default contract
+    ├── shadcn-design-system.md ← upstream method + existing-product boundaries
+    ├── current-practice.md ← dated primary evidence + maintenance/evaluation route
     └── gold-corpus/        ← 34 example design.md files + README
 ```
 
@@ -21,9 +23,10 @@ Unpack into your agent skills directory as `design-md-visual-system/` (Hermes / 
 
 ## Gold corpus (bundled)
 
-All 34 implementation-grade `design.md` files ship in this pack under
+All 34 reference `design.md` files ship in this pack under
 `references/gold-corpus/<template>/` (one per beautiful-html-templates template,
-463–714 lines each, all with the 8 standard body sections). Mirrored 2026-08-05
+463–714 lines each). Their historical length is not a minimum or acceptance gate;
+load one matching example only when portable/template mode needs it. Mirrored 2026-08-05
 from the local tool / public repo
 **`github.com/zarazhangrui/beautiful-html-templates`** (repo HEAD `e5e204f`).
 
@@ -33,7 +36,10 @@ from the local tool / public repo
   peoples-platform, pin-and-paper, pink-script, soft-editorial, stencil-tablet.
 - **Refresh + lint profile**: see `references/gold-corpus/README.md`.
 
-## CLI
+## CLI (optional portable mode)
+
+Use only when claiming Google format conformance or an export consumer exists;
+short prose/CSS-backed contracts do not need this schema gate.
 
 ```bash
 npx -y @google/design.md lint DESIGN.md
@@ -50,4 +56,4 @@ Upstream format: https://github.com/google-labs-code/design.md
 
 ## Version
 
-Skill pack `1.0.0` (see SKILL.md frontmatter). Google DESIGN.md file `version:` fields typically remain `alpha` per upstream format.
+Skill pack `1.2.0` (see SKILL.md frontmatter). Google DESIGN.md file `version:` fields typically remain `alpha` in portable mode; short project contracts need no artificial version/frontmatter.

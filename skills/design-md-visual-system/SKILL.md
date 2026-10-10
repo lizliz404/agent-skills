@@ -1,140 +1,167 @@
 ---
 name: design-md-visual-system
 description: >-
-  Use when writing or auditing Genre-A UI DESIGN.md visual systems for coding
-  agents: YAML tokens + prose (Signature Treatments, Defaults, Do/Don't, CJK,
-  Iteration, Known Gaps). Extract from real CSS/HTML or a gold template; lint
-  and optionally export via npx @google/design.md. Not for brand/OG/image briefs
-  (Genre B — use design-brief skills instead).
-version: 1.1.0
+  Write, improve or audit coding-agent DESIGN.md visual systems using Google
+  DESIGN.md and shadcn/ui practices. Scope incremental edits separately from
+  complete design-system delivery: reuse presets, semantic tokens, component
+  variants and visual verification. Preserve design rationale, CJK, iteration
+  rules and real gaps; load deep references on demand. Not for brand/OG/image briefs.
+version: 1.2.0
 author: Liz (lizliz.xyz)
 license: MIT
 metadata:
   hermes:
-    tags:
-      - design-md
-      - visual-system
-      - design-tokens
-      - yaml
-      - ui
-      - coding-agents
-      - stitch
-    related_skills:
-      - design-md
-      - design-brief-authoring
-      - design-brief-for-image-gen
-      - creative-artifact-production
+    tags: [design-md, visual-system, design-tokens, ui, coding-agents, shadcn, stitch]
+    related_skills: [design-md, design-brief-authoring, design-brief-for-image-gen]
 disable-model-invocation: true
 ---
 
-# DESIGN.md Visual System (implementation-grade)
+# DESIGN.md Visual System
 
-Persistent design contract for coding agents — the design-side peer of `AGENTS.md`:
-machine tokens plus the judgment tokens alone cannot carry.
+A persistent implementation contract: precise tokens/roles plus the judgment that
+values alone cannot convey. Follow primary expert workflows before inventing a
+new one. Match coverage to the deliverable; neither length nor brevity is a quality
+metric. The existing gold corpus remains valuable for complete systems.
 
-## Genre gate (read first)
+Reusable methods live in this skill; concrete decisions live in one project
+`DESIGN.md`; Git carries history. Improve incrementally from observed failures,
+not by declaring previous approaches wrong merely because they are extensive.
 
-Liz has **two different documents** both sometimes called DESIGN.md:
+## Choose the job and scope
 
-| Genre | Job | Skill |
-|---|---|---|
-| **A — Visual system** | Machine tokens + prose so a coding agent can *implement* UI/slides/landings without inventing taste | **This skill** |
-| **B — Brand / distribution brief** | Product identity, audience, motion/OG/favicon briefs for *image* AI | `design-brief-authoring` / `design-brief-for-image-gen` |
+- **UI visual system (Genre A):** this skill.
+- **Brand / OG / image-generation brief (Genre B):** use the design-brief skill;
+  preserve an existing brief rather than replacing it with UI rules.
+- **Incremental product work:** read the existing contract and relevant runtime
+  sources; change only affected decisions. Preserve useful full-system sections.
+  A new small project can start with the compact skeleton, then grow as needed.
+- **Complete visual system / portable template:** use the corpus anatomy, token
+  roles, Defaults, conditional Signature Treatments, responsive/CJK, Iteration
+  and Known Gaps. Google YAML + prose is a strong interoperable foundation; do
+  not omit essential coverage just to be short. Read [anatomy](references/anatomy-and-patterns.md).
+- **Component library / showcase:** follow upstream shadcn full workflow when
+  this is the requested output. State coverage and validate its component/state
+  examples; it is not the default artifact for an incremental color change.
+- **Export:** only when an interchange/build consumer needs it. Google spec
+  permits optional YAML and omitted irrelevant sections; no minimum line count.
 
-If Liz says 「写 DESIGN.md」without context: ask which job, or infer from target (slide template / landing system → A; favicon·OG·生图 → B). **Do not** ship a thin vibe paragraph and call it done. **Do not** replace a good B-doc with A or vice versa — split into two files if both jobs exist.
+Ask only if ambiguity changes the artifact or implementation. Do not create a
+second competing visual-system document. If a distinct distribution brief is
+needed, name its job explicitly and keep it out of the UI token contract.
 
-**Gold corpus (bundled):** `references/gold-corpus/<template>/design.md` — all 34 templates, structure-verified (lint profile + refresh in `references/gold-corpus/README.md`).  External sources: the `beautiful-html-templates` tool (`templates/*/design.md`); public mirror `github.com/zarazhangrui/beautiful-html-templates`.  
-Primary reference: `references/gold-corpus/soft-editorial/design.md` (+ `signal`, `monochrome`, `bold-poster`, `grove` for contrast).  
-Google format + CLI: `npx -y @google/design.md` (`lint` / `export` / `spec`) — upstream spec lives at `google-labs-code/design.md` (not `google/design.md`).
+## Coverage before length
 
-## Bar (what "not garbage" means)
+For incremental/small-project scope use [skeleton](references/skeleton.md). For a
+complete system use the anatomy/corpus. Both must carry applicable decisions:
 
-Thin tokens + 6 vibe bullets = fail. Gold files are ~500–700 lines and always carry:
+1. **Source of truth:** runtime token file, component source and any intentional
+   numeric ownership/export rule.
+2. **Direction + density:** one short paragraph, 1–3 distinguishing treatments;
+   describe what would look wrong.
+3. **Roles + defaults:** surface/ink/brand, type roles, spacing/radius/depth;
+   refer to code rather than recopying values.
+4. **Hard boundaries:** where accents/materials may appear, what stays independent
+   (status/platform/chart/media), responsive and reduced-motion behavior, relevant
+   CJK handling.
+5. **Change + acceptance:** where to edit, a representative screen/state to check,
+   genuine gaps. No invented debts or rubric boilerplate.
 
-1. **YAML frontmatter** — normative tokens agents can copy
-2. **Overview** with *density philosophy* + **Key Characteristics** bullets
-3. **Signature Treatments** — *non-optional* when that element type appears
-4. **Defaults** subsections (when unsure, reach for X)
-5. **Do / Don't** paired and specific
-6. **CJK & International** + **Iteration Guide** + **Known Gaps**
+Short is not vague: “warm surface” alone is insufficient; “canvas uses
+`--background` from `src/theme-tokens.css`, data cards use `--card`, no blur on data”
+is actionable. A precise paragraph can replace a duplicated table.
 
-Full anatomy → `references/anatomy-and-patterns.md`  
-Rubric + audit blockquote → `references/quality-rubric.md`  
-Mini skeleton → `references/skeleton.md`
+## Workflow
 
-## Authoring workflow
+1. **Read current evidence first.** Existing DESIGN.md, CSS tokens, component
+   variants/config, and at most one matching reference. Preserve stack/base,
+   naming and working behavior. Reuse existing color research and templates.
+2. **Reuse a foundation.** For a new UI choose one preset by geometry/density;
+   for an existing UI retain its foundation unless a switch is authorized. Say
+   the choice and reason in one line; do not compare every style.
+3. **Write/update the scoped contract.** Preserve the old skill's strengths:
+   explicit density, Defaults, conditional Signature Treatments, CJK when relevant,
+   Iteration and Known Gaps. For incremental work update only affected decisions.
+   For a full system cover these systematically; avoid vague vibe paragraphs.
+4. **Reuse implementation, then map roles/variants.** Check the existing import
+   and API before translating appearance recipes: a production Button should be
+   used, not rebuilt from prose. Primitive → semantic alias → component.
+   Centralize values and states; reuse shared Button/Card/Input variants rather
+   than repeating raw colors/styles at call sites. Existing runtime token files
+   remain canonical; no Markdown-to-CSS engine by default.
+5. **If implementing, prove composition.** Incremental work uses a representative
+   real page/state or existing preview. Complete library/showcase work follows
+   the upstream foundations → component states → recipes → example-screen
+   coverage. No unsolicited theme switcher or framework migration.
+6. **Verify proportionately.** Inspect the changed state, narrow layout and actual
+   visual output; contrast/focus when their colors change; autoplay + hover +
+   reduced motion when adding motion. Use targeted checks, not a ritual full
+   suite for documentation or every tiny visual adjustment.
+7. **Stop at the agreed acceptance, then improve from evidence.** Deliver when
+   the requested scope works, relevant visual intent is shown and observed
+   regressions are resolved. Iteration is valuable when driven by a mismatch,
+   real feedback or a representative evaluation, not documentation length or
+   perpetual polish. Report evidence and unverified gaps without claiming deployment.
 
-1. **Confirm genre A.** If B, switch skills.
-2. **Extract, don't invent.** Pull colors/type/radius/shadows from real CSS/HTML (or from a chosen gold template). Ground truth > vibe.
-3. **Name the system in one paragraph** (cultural refs + what it is *not*). Put that in `description:` and expand in Overview.
-4. **Lock 1–3 signature moves** (e.g. Signal = gold italic mid-sentence; Soft Editorial = roman/italic weight drop + pastel cards; Raw Grid = 3px black borders + hard offset shadow). These become Signature Treatments.
-5. **Write YAML** first: `version` (Google format still uses `alpha`), `name`, `description`, `colors`, `typography` (role tokens), `spacing`, `canvas` (if slide/deck), `components` (each needs a `description:`). Optional: `color-aliases`, `borders`, `shadows`, `rounded`/`radii`, `motion`. Note: `canvas` is a local extension — the official CLI schema ignores it on export (kept for agent prose context only).
-   - Prefer a light **token ladder**: primitive hex in `colors` → semantic roles in `color-aliases` → component props via `{colors.x}` / `{typography.y}` refs. Do not paste DTCG `$value` / `$type` JSON into the YAML — that is an export target, not the authoring format.
-6. **Write body in canonical order** (see anatomy). Every color/type role gets prose *why* + Defaults.
-7. **Lint** when structure is Google-shaped: `npx -y @google/design.md lint DESIGN.md`. Fix broken refs.
-8. **Optional export** when a build pipeline needs it:
-   - `npx -y @google/design.md export --format css-tailwind DESIGN.md` (Tailwind v4 `@theme`)
-   - `npx -y @google/design.md export --format json-tailwind DESIGN.md` (v3 `theme.extend`)
-   - `npx -y @google/design.md export --format dtcg DESIGN.md` (W3C Design Tokens Format)
-   Genre A DESIGN.md stays the **agent-facing** source; DTCG/Tailwind outputs are interchange, not a reason to delete prose.
-9. **Self-score** with rubric. Below 7/10 on Structure or Signature → keep writing.
+## Current practice and upstream follow-up
 
-## Interoperability (keep boundaries clear)
+Read [current practice](references/current-practice.md) when updating this skill,
+changing artifact scope or investigating repeated agent drift. Google supplies
+the portable format; shadcn supplies implementation mapping; Atlassian's June and
+September reports distinguish portable prototypes from implementation-aware
+production guidance and show how to evaluate the whole usage chain.
 
-| Artifact | Job |
-|---|---|
-| **Genre A DESIGN.md** | Coding-agent contract: tokens + rationale + signatures |
-| **DTCG `tokens.json`** | Cross-tool / multi-platform token exchange |
-| **Tailwind theme / CSS vars** | Runtime styling in the app |
-| **Genre B brief** | Image/motion/OG identity — separate file |
+Follow primary sources and actual task traces, not a permanent snapshot of old
+research. Refresh after relevant schema/API changes or recurring failures, and
+propose a monthly human-owned review for sustained use; no automatic scheduler
+or broad search on every small component edit. Do not claim vendor benchmark
+savings as our own.
 
-Do not collapse these into one thin file. If a mature design-ops pipeline already treats DTCG as canonical for mobile+web codegen, keep DESIGN.md as the AI-facing mirror of a *subset* plus the judgment layer — still extract, don't invent.
+## Shadcn/ui route (optional implementation capability)
 
-## Placement
+For shadcn projects, read [Shadcn DESIGN.md adapter](references/shadcn-design-system.md).
+It links to the upstream skill and explains the adapted preset → tokens → variants
+→ real-screen path. **Do not copy its full new-app showcase procedure into an
+existing product.** Use installed APIs/base and the project's package manager.
+No automatic `init`, `apply`, `add --all` or dependency upgrades.
 
-- Slide/template pack: beside the template (`design.md` lowercase OK — match corpus).
-- Product UI system: `docs/DESIGN.system.md` or `docs/visual-system.md` if `docs/DESIGN.md` is already genre B.
-- Prefer not to overwrite a strong brand brief; **split**.
+## Portable YAML / export (only when a consumer needs it)
 
-## Evolution
+- Start from one relevant bundled [gold corpus](references/gold-corpus/README.md)
+  example. Its extensive coverage is useful for full systems; 500–700 lines
+  describe examples, not an upstream format requirement.
+- Include the token roles and component descriptions the consumer actually uses.
+  Preserve useful Defaults, conditional Signatures, CJK, Iteration and Gaps without
+  expanding irrelevant sections. Schema requirements may differ from short mode.
+- `npx -y @google/design.md lint DESIGN.md` checks Google-shaped documents; it is
+  not the gate for a deliberate prose/CSS-backed project contract.
+- Export (`css-tailwind`, `json-tailwind`, `dtcg`) only if a build/interchange
+  consumer exists. Declare the canonical source and generated direction; never
+  create two manually maintained numeric truths.
+- [Quality rubric](references/quality-rubric.md) scores decision coverage, not length.
 
-- Google DESIGN.md format remains `version: alpha` in file frontmatter — expect schema drift; re-lint after CLI upgrades.
-- **Iteration Guide** = rules for additive change without drift.
-- **Known Gaps** = intentional absences + debts (also serves as a lightweight changelog of what not to "fix").
-- Skill pack version (this file's `version:`) is independent of the Google format `alpha` tag.
-- Bundled corpus lint profile: 10/34 files are 0-error canaries (list in `references/gold-corpus/README.md`); the rest warn/error only on `clamp()`/`vw` responsive sizes + schema-extension keys — intentional, not defects. Never cite a non-canary corpus file as a lint-clean example.
+## Pitfalls
 
-## Anti-patterns
+- More writing/research/agents is not better design. Do not rerun palette due
+  diligence, read all 34 references or keep tuning without a concrete signal.
+- CSS primitives and aliases must resolve in the correct theme scope; inherited
+  root aliases do not recompute from a descendant primitive override.
+- Unlayered first-paint CSS can outrank layered theme rules. Inspect the actual
+  cascade before adding another override.
+- Official interactive components may already have autoplay/intensity/reduced
+  motion. Read their API before inventing timers, geometry or synthetic pointers.
+- Width is not zoom. Make layout space wider without inflating unrelated type,
+  icons or demos; inspect lower sections, not only a hero screenshot.
+- A passed build is not visual acceptance; an offline screenshot is not deployment.
+- No CSS palette proves medical eye health.
 
-- ❌ Genre confusion (OG brief pretending to be UI system, or vice versa)
-- ❌ Invented hex/fonts not in code or chosen reference
-- ❌ YAML without component `description:` / body without Signature Treatments
-- ❌ Inter/Roboto default stack with no role separation (display / body / mono chrome)
-- ❌ "Use generous whitespace" with no pad tokens or density philosophy
-- ❌ Semantic rainbow (success green / warn yellow) forced onto a monochrome or single-accent system
-- ❌ Replacing DESIGN.md prose with DTCG-only JSON and hoping agents infer taste
-- ❌ Deleting existing DESIGN.md wholesale — enhance or split
+## Sources / boundaries
 
-## References
-
-**Google DESIGN.md 规范/CLI(外部权威源,URL 逐个 curl 验证)**
-- Spec 仓库 — `https://github.com/google-labs-code/design.md` — 证据 高(200)— 用途:格式规范/字段定义/上游变更;旧路径 `google/design.md` 已 404
-- Stitch spec 可读版 — `https://stitch.withgoogle.com/docs/design-md/specification` — 证据 高(200)— 用途:人读规范,比 repo 好读
-- Stitch overview — `https://stitch.withgoogle.com/docs/design-md/overview` — 证据 高(200)— 用途:DESIGN.md 是什么/何时用
-- npm 包 — `https://registry.npmjs.org/@google/design.md` — 证据 高(200,latest 0.4.0)— 用途:CLI 版本/lint/export 行为变化
-- 官方博客公告 — `https://blog.google/innovation-and-ai/models-and-research/google-labs/stitch-design-md/` — 证据 高(200)— 用途:设计动机与边界
-
-**令牌标准(DTCG)**
-- Format 2025.10 — `https://www.designtokens.org/tr/2025.10/format/` — 证据 高(200)— 用途:`export --format dtcg` 的目标格式;跨工具互通讨论
-
-**本地兜底/工具**
-- CLI 权威 schema — `npx -y @google/design.md spec` — 证据 高(本机实测)— 用途:字段合法性裁决(lint 报错时先查它,别猜)
-- Gold corpus 真源(刷新镜像用)— 本地 `beautiful-html-templates` 工具 `templates/*/design.md` 或公开镜像 `github.com/zarazhangrui/beautiful-html-templates` — 用途:更新 `references/gold-corpus/`(见其 README)
-- Hermes bundled `design-md` — 用途:CLI 封装入口
-
-## Related
-
-- Spec/CLI lint-export: Hermes bundled `design-md` / `npx @google/design.md`
-- Brand/OG briefs: `design-brief-authoring`, `design-brief-for-image-gen`
-- Steal motion/structure from live sites: `creative-artifact-production` → design-template-extraction
-- Frontend slides fixed 1920×1080 stage policy: see bold-poster / grove templates' "Frontend Slides Fixed-Stage Policy" section when generating decks
+- Shadcn primary sources + announcement: [adapter](references/shadcn-design-system.md).
+- Cross-checked primary practices and scope decisions: [adapter](references/shadcn-design-system.md#primary-practice-cross-check).
+- Google spec: https://github.com/google-labs-code/design.md and
+  https://stitch.withgoogle.com/docs/design-md/specification.
+- DTCG exchange: https://www.designtokens.org/tr/2025.10/format/.
+- Gold corpus: `zarazhangrui/beautiful-html-templates`; use its README for refresh
+  and lint-canary limits. Never present a non-canary as lint-clean.
+- Assets/research: `lizliz404/design-templates` and `lizliz404/design`; link rather
+  than mirror them here. This skill owns the method, projects own the decisions.

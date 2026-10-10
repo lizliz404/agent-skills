@@ -1,5 +1,11 @@
 # Anatomy & patterns (beautiful-html-templates corpus)
 
+**Optional portable/corpus mode, not the project default.** The coverage and patterns
+below describe bundled examples, not mandatory headings or a length target.
+For existing products use the short CSS-backed [skeleton](skeleton.md), with
+[Shadcn mapping](shadcn-design-system.md) only if relevant. Preserve explicit token
+ownership; do not recopy every CSS number or read all 34 examples.
+
 Source: gold corpus bundled at `gold-corpus/` (34 templates, mirrored 2026-08-05 from `beautiful-html-templates`; structure + lint profile in `gold-corpus/README.md`). Canonical bar: `gold-corpus/soft-editorial/design.md`.  
 The corpus **is** shipped in the public skill zip under `references/gold-corpus/`; the external tool remains the refresh source.
 
@@ -51,7 +57,7 @@ Do **not** author DTCG `$type`/`$value` trees in the frontmatter. If a pipeline 
 11. Known Gaps
 
 Google design.md minimal set is Overview → Colors → Typography → Layout → Elevation → Shapes → Components → Do's/Don'ts.  
-**This corpus extends** with Responsive + CJK + Iteration + Known Gaps. Prefer the extended set for Liz.
+**This corpus extends** with Responsive + CJK + Iteration + Known Gaps. Keep applicable decisions, merging headings when useful. This is not a compulsory extended outline for each project.
 
 ### High-frequency H3 patterns
 
@@ -155,7 +161,7 @@ Honest debts: disabled sidebar, browser support (`color-mix`), animation engine 
 ## Genre A vs Google minimal CLI
 
 Bundled Hermes `design-md` / `npx @google/design.md` teaches Google's schema + lint/export.  
-This skill demands the **corpus-complete** prose layer (Signature, Density, CJK, Iteration, Gaps). Lint still useful for broken refs and contrast; export useful when Tailwind/DTCG consumers appear. Do not shrink to Stitch's short "Visual Theme + Palette" stub.
+This skill requires actionable decisions (distinguishing rules, density, applicable CJK, change path and genuine gaps), not corpus-complete length. A short CSS-backed contract can cover them. Lint is useful for portable schema/refs; export only when an actual Tailwind/DTCG consumer exists. A vague vibe paragraph remains insufficient.
 
 ## How to steal a template into a product UI
 
