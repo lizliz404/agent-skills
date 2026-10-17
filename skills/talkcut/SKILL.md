@@ -8,8 +8,8 @@ description: >-
   Use when the user wants to cut a talking-head video, remove retakes, add subtitles, or add chapter navigation.
 license: MIT
 metadata:
-  version: "0.2.0"
-  evidence-basis: "End-to-end on espeak-ng Chinese speech with a simulated ASR result (retake, mid-sentence restart, filler); review page rendered in headless Chrome; live Volcengine ASR and semantic cut quality on real footage not yet verified"
+  version: "0.3.0"
+  evidence-basis: "Real Linux footage: live Doubao ASR, manually reviewed cuts, semantic captions, full decode and sampled browser playback in an extended workspace; semantic validator/burn gates integrated here, richer workspace UI/rendering not yet fully bundled"
 ---
 
 # talkcut
@@ -17,18 +17,21 @@ metadata:
 ffmpeg and the ASR service do the heavy lifting. The agent does only what it is actually good at: **reading the transcript** (which lines are retakes, how to chapter it) and **gluing the pieces together**.
 All scripts live in `scripts/` and need only Python 3 stdlib + ffmpeg/ffprobe; the navigation bar additionally needs Pillow.
 
+**Read [production lessons](references/production-lessons.md) before real-footage rendering or review-UI work.** It captures semantic-caption hard gates, human-edit ownership, low-cost production-frame preflight, default localhost delivery, bounded rendering and conservative speed. These are mandatory workflow requirements; it also identifies capabilities not yet fully integrated into the bundled CLI.
+
 ## Quick start (Linux / Arch / Omarchy, also macOS)
 
 ```bash
 python3 scripts/doctor.py                          # checks ffmpeg+libass+x264, Pillow, CJK font, Doubao key, disk; prints fix commands
 python3 scripts/talkcut.py run clip1.mp4 clip2.mp4 # prep -> ASR (cached by audio hash) -> rule cuts -> review server
 #   agent: read work/transcript.json, write work/plan.json (contract below), rerun the same `run` command
-python3 scripts/talkcut.py render                  # cut + karaoke subtitles + navbar (if work/chapters.json exists)
+python3 scripts/talkcut.py render --no-burn        # clean cut + DRAFT subtitle export; agent then writes reviewed work/caption-plan.json
+python3 scripts/talkcut.py render                  # reviewed semantic subtitles + navbar (if work/chapters.json exists)
 python3 scripts/talkcut.py status
 ```
 On Arch/Omarchy the one-time setup is `sudo pacman -S --needed ffmpeg python-pillow noto-fonts-cjk`.
 Every stage is cached in `work/state.json`; reruns skip finished steps, and the raw ASR result is cached in
-`~/.cache/talkcut/asr/<sha256>.json`, so the same audio is never billed twice. The steps below are what the driver runs.
+`~/.cache/talkcut/asr/<sha256>.json`, so completed cached results are reused. This is not an exactly-once billing guarantee after an ambiguous request/network failure; inspect receipts before resubmitting. The steps below are what the driver runs.
 
 ## Workflow
 
@@ -79,10 +82,15 @@ All artifacts go into one working directory (`work/` below); scripts hand off on
 6. **Render** `python3 scripts/render.py work/transcript.json` → `work/cut.mp4` + `work/cut.json` (transcript on the new timeline).
    trim/atrim + concat with re-encode for frame accuracy; 10 ms audio fades at each cut prevent clicks.
 
-7. **Subtitles** `python3 scripts/subs.py work/cut.json --style simple|karaoke [--burn]`
+7. **Subtitles** `python3 scripts/subs.py work/cut.json --caption-plan work/caption-plan.json --style simple|karaoke [--burn]`
    - `simple`: white text with black outline. `karaoke`: per-word highlight (current word recoloured and scaled to 118%).
    - Always exports `cut.srt` (importable into CapCut / 剪映) and the matching `.ass`; `--burn` also renders `cut_<style>.mp4`.
    - Tuning: `--max-chars` per line, `--font` font name, `--highlight` colour (ASS `&HAABBGGRR`).
+   - **Semantic phrasing comes before character count.** For Chinese, aim for a flexible 8–12 characters per cue when suitable; this is a readability guide, not a quota or mandatory minimum. Prefer complete short phrases, clauses, real punctuation and spoken pauses. Do not split every 10 characters, split a word/name/number-unit combination, or strand a conjunction merely to meet a count. Short complete cues are fine; preserve longer inseparable expressions when layout permits. ASR sentence boundaries can also be incomplete: review adjacent sentences together.
+   - **Hard render gate:** no final subtitle burn without an explicit agent-authored, reviewed semantic cue plan. Fixed-count chunking is prohibited for final delivery, even if every cue passes a length assertion. Preserve exact retained wording and order; save `caption-plan.json` as `{"reviewed_by":"agent-name", "cues":["exact phrase", "next phrase"]}`, then run `python3 scripts/caption_plan.py work/cut.json work/caption-plan.json -o work/captions.json`. Map reviewed cues into SRT/ASS. The validator proves exact text coverage and timing, not semantics. Use proportional within-token timing only when unavoidable and record that it is estimated. `subs.py --max-chars` remains a mechanical draft fallback; its direct output is not an approved final-caption path. Both `subs.py --burn` and the render driver now reject missing/unreviewed semantic plans, and the driver includes the plan in its subtitle cache key.
+   - **Review before burning:** inspect several real consecutive cues and one frame from the production subtitle renderer. A good-looking still does not prove fluent segmentation. Retain a clean cut without overlays plus editable SRT/ASS, so approved caption changes do not require ASR or redoing cuts.
+   - **2026-10 real-use lesson:** mechanically cutting Chinese every 10 characters produced abrupt, unnatural subtitles despite passing length checks. Do not turn a user's approximate length preference into a rigid splitter. When captions are already burned, estimate the cost of returning to the clean cut and re-encoding before rerendering; do not paint a second caption on top of old text or silently repeat expensive full renders.
+   - **Packaging and speed:** choose episode boundaries at complete ideas, not equal duration alone. If the user accepts existing overlays, compatible H.264/AAC parts can be joined/split near verified video keyframes with stream copy. A small speed change may be possible by retiming copied video and using pitch-preserving audio `atempo`; verify actual output duration, playback and A/V sync, and state the changed effective frame rate. If constant source FPS, precise non-keyframe cuts or new overlays are required, re-encode once from clean cuts and combine all approved changes in that pass.
 
 8. **Chapter navigation bar** (style credited to [dbskill / dbs-video-navigation](https://github.com/dontbesilent2025/dbskill))
    - The agent reads `cut.json`, chapters it by "what problem is being addressed", and writes `work/chapters.json`:
@@ -93,6 +101,13 @@ All artifacts go into one working directory (`work/` below); scripts hand off on
      `start` is final-cut time in seconds, taken from sentence starts in `cut.json`; the first segment starts at 0. Top line = which part we are in, bottom line = what this segment says; both must fit on one line. Write titles in the video's language.
    - `python3 scripts/navbar.py work/cut.json work/chapters.json` → `work/navbar.mp4`: same length as the cut, no audio, same width, black background, white text, blue progress bar with gaps between chapters. Style lives in `assets/navbar-black-blue.json`.
    - On delivery, explain: drop it into CapCut above the main track, aligned at 0 s, at the top of the frame; to make room, scale the original down and shift it.
+
+## Delivery defaults
+
+- Choose one durable user-approved video root on the media/data partition and use one project directory per job. Keep final MP4 and subtitle sidecars together; put new job inputs/work/cache under that project rather than scattering directories. Move approved existing deliverables instead of making duplicate copies; verify hashes and update links (or use lightweight symlink compatibility paths). Never broadly move/delete unrelated old media without authorization. Do not hard-code a user's absolute path into this portable Skill.
+- Serve review, independent clips and final episodes on the same loopback site with progress, real playback, seeking and downloads. Provide clickable localhost links without waiting for a user reminder; file paths alone are not delivery. Extend an existing review service where available. The bundled CLI review page is not yet the full Clip/Episode delivery workspace: implement missing delivery routes when needed and report that integration boundary.
+- Before a full burn, show a low-cost actual production frame and check a short sequence of consecutive captions. Preserve approved navigation/design; don't add effects or reset the workflow for a local correction.
+- Default to natural speed. Where a mild speedup is approved, keep it at 1.05× for this style unless the user explicitly asks for and accepts more after listening. Faster encoding playback is not necessarily better comprehension; avoid a rushed, less-human delivery. Viewers can choose a faster player speed themselves.
 
 ## Acceptance checks (after every render)
 

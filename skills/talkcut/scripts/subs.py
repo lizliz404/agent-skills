@@ -4,11 +4,13 @@
   --style simple   white text, black outline (SRT + ASS)
   --style karaoke  per-word highlight: current word recoloured + enlarged (ASS, one event per word; any player/ffmpeg can burn it)
   --burn           burn the ASS into the video with ffmpeg -> cut_<style>.mp4; otherwise only export files (drag into CapCut / 剪映)
-Usage: python3 subs.py work/cut.json --style karaoke --burn [--max-chars 16]
+Usage: python3 subs.py work/cut.json --caption-plan work/caption-plan.json --style karaoke --burn
+Without --caption-plan only draft exports are allowed; --max-chars controls draft grouping.
 """
-import argparse, re, subprocess
+import argparse, json, re, subprocess
 from pathlib import Path
 from common import load, need, ts, video_info
+from caption_plan import map_plan
 
 PUNCT = "，。！？；、,.!?;：:"
 
@@ -41,13 +43,36 @@ p.add_argument("--max-chars", type=int, default=16)
 p.add_argument("--font", default="Noto Sans CJK SC")
 p.add_argument("--highlight", default="&H00FFC864", help="ASS BGR colour, default light blue")
 p.add_argument("--burn", action="store_true")
+p.add_argument("--caption-plan", type=Path, help='Reviewed semantic cue JSON; required for final burning')
 a = p.parse_args()
 cp = Path(a.cut); c = load(cp)
 video = cp.parent / c["media"]
+if a.burn and not a.caption_plan:
+    p.error('Final burn requires --caption-plan with reviewed semantic cues; fixed-count splitting is draft-only')
+if a.caption_plan:
+    plan = load(a.caption_plan)
+    if a.burn and not (plan.get('reviewed_by') or plan.get('reviewed') is True):
+        p.error('Semantic cue plan must be reviewed before burning (reviewed_by or reviewed:true)')
+    mapped = map_plan(c, plan)
+    chars = []
+    for sentence in c['sentences']:
+        for word in sentence['words']:
+            text = word['text']; duration = word['end'] - word['start']
+            chars.extend({'text':ch, 'start':word['start']+duration*j/len(text), 'end':word['start']+duration*(j+1)/len(text)} for j,ch in enumerate(text))
+    L = [chars[cue['char_start']:cue['char_end']] for cue in mapped['cues']]
+    cp.with_name('captions.json').write_text(json.dumps(mapped, ensure_ascii=False, indent=2), encoding='utf-8')
+else:
+    print('DRAFT ONLY: fixed-count cue grouping is not approved semantic segmentation')
+    L = [l for l in lines(c["sentences"], a.max_chars) if clean("".join(w["text"] for w in l))]
 W, H, _ = video_info(video)
-L = [l for l in lines(c["sentences"], a.max_chars) if clean("".join(w["text"] for w in l))]
 
-srt = [f"{i}\n{ts(l[0]['start'])} --> {ts(l[-1]['end'])}\n{clean(''.join(w['text'] for w in l))}\n" for i, l in enumerate(L, 1)]
+def display(text):
+    return text if a.caption_plan else clean(text)
+
+def escape_ass(text):
+    return text.replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}').replace('\n', r'\N')
+
+srt = [f"{i}\n{ts(l[0]['start'])} --> {ts(l[-1]['end'])}\n{display(''.join(w['text'] for w in l))}\n" for i, l in enumerate(L, 1)]
 cp.with_suffix(".srt").write_text("\n".join(srt), encoding="utf-8")
 
 size = round(H * 0.055)
@@ -67,12 +92,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ev = []
 for l in L:
     if a.style == "simple":
-        ev.append(f"Dialogue: 0,{ass_time(l[0]['start'])},{ass_time(l[-1]['end'])},Base,,0,0,0,,{clean(''.join(w['text'] for w in l))}")
+        ev.append(f"Dialogue: 0,{ass_time(l[0]['start'])},{ass_time(l[-1]['end'])},Base,,0,0,0,,{escape_ass(display(''.join(w['text'] for w in l)))}")
         continue
-    words = [w for w in l if clean(w["text"])]
+    words = [w for w in l if display(w["text"])]
     for k, w in enumerate(words):  # one event per word: current word highlighted and enlarged, others white
         end = words[k + 1]["start"] if k + 1 < len(words) else l[-1]["end"]
-        txt = "".join((f"{{\\c{a.highlight}&\\fscx118\\fscy118}}{clean(x['text'])}{{\\r}}" if j == k else clean(x["text"]))
+        txt = "".join((f"{{\\c{a.highlight}&\\fscx118\\fscy118}}{escape_ass(display(x['text']))}{{\\r}}" if j == k else escape_ass(display(x["text"])))
                       for j, x in enumerate(words))
         ev.append(f"Dialogue: 0,{ass_time(w['start'])},{ass_time(end)},Base,,0,0,0,,{txt}")
 ass = cp.with_suffix(f".{a.style}.ass")

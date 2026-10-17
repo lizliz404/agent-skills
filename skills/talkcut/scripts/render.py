@@ -85,7 +85,7 @@ parts = "".join(f"[0:v]trim={x}:{y},setpts=PTS-STARTPTS[v{i}];[0:a]atrim={x}:{y}
                 f"afade=t=in:d=0.01,afade=t=out:st={max(0, y - x - 0.01):.3f}:d=0.01[a{i}];" for i, (x, y) in enumerate(segs))
 graph = parts + "".join(f"[v{i}][a{i}]" for i in range(len(segs))) + f"concat=n={len(segs)}:v=1:a=1[v][a]"
 fg = out.with_suffix(".filter.txt"); fg.write_text(graph, encoding="utf-8")
-subprocess.run([need("ffmpeg"), "-y", "-v", "error", "-i", str(media), "-filter_complex_script", str(fg),
+subprocess.run([need("ffmpeg"), "-y", "-v", "error", "-i", str(media), "-filter_complex", graph,
                 "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "18", "-preset", "medium",
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)], check=True)
 sents, total = remap(t, segs)

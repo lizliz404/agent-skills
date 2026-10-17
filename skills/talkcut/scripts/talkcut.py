@@ -98,11 +98,18 @@ def cmd_render(a):
     skip = st.fresh("render", k, "cut.mp4", "cut.json"); step("cut", skip)
     if not skip:
         py("render.py", w / "transcript.json", "-o", w / "cut.mp4", "--pad", a.pad); st.done("render", k)
-    k2 = sha(w / "cut.json", a.style, a.no_burn)
+    caption_plan = Path(a.caption_plan).resolve() if a.caption_plan else w / 'caption-plan.json'
+    if not a.no_burn:
+        if not caption_plan.exists():
+            sys.exit(f'Final burn needs reviewed semantic cues: write {caption_plan}, then rerun render')
+        cue_plan = json.loads(caption_plan.read_text())
+        if not (cue_plan.get('reviewed_by') or cue_plan.get('reviewed') is True):
+            sys.exit('Caption plan must be reviewed before final burning')
+    k2 = sha(w / "cut.json", a.style, a.no_burn, caption_plan if caption_plan.exists() else 'draft-cues')
     outs = ["cut.srt"] + ([] if a.no_burn else [f"cut_{a.style}.mp4"])
     skip = st.fresh("subs", k2, *outs); step(f"subtitles ({a.style})", skip)
     if not skip:
-        py("subs.py", w / "cut.json", "--style", a.style, *([] if a.no_burn else ["--burn"])); st.done("subs", k2)
+        py("subs.py", w / "cut.json", "--style", a.style, *(['--caption-plan', caption_plan] if caption_plan.exists() else []), *([] if a.no_burn else ["--burn"])); st.done("subs", k2)
     ch = w / "chapters.json"
     if ch.exists():
         k3 = sha(w / "cut.json", ch)
@@ -140,6 +147,7 @@ r.add_argument("--standard", action="store_true"); r.add_argument("--no-serve", 
 r.set_defaults(fn=cmd_run)
 d = sub.add_parser("render"); d.add_argument("--style", choices=["simple", "karaoke"], default="karaoke")
 d.add_argument("--no-burn", action="store_true"); d.add_argument("--pad", type=float, default=0.05)
+d.add_argument('--caption-plan', help='Reviewed semantic cue JSON (default: work/caption-plan.json)')
 d.set_defaults(fn=cmd_render)
 s = sub.add_parser("status"); s.set_defaults(fn=cmd_status)
 for p in (r, d, s):

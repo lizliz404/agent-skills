@@ -112,9 +112,15 @@ def apply_plan(plan, sents):
             mark(by[i], True, x.get("reason", "") if isinstance(x, dict) else "", "ai")
     for c in plan.get("cut_words", []):
         s = by[c["id"]]
+        if s.get("by") == "manual":
+            continue
+        changed = False
         for w in s["words"][c["from"]:c["to"] + 1]:
-            w["keep"], w["by"] = False, "ai"
-        s["reason"] = c["reason"]; s.setdefault("by", "ai")
+            if w.get("by") != "manual":
+                w["keep"], w["by"] = False, "ai"
+                changed = True
+        if changed:
+            s["reason"] = c["reason"]; s.setdefault("by", "ai")
 
 
 if __name__ == "__main__":

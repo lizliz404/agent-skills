@@ -5,7 +5,7 @@ Turn one or more raw talking-head clips into a publishable cut: **when a line is
 ```
 clips ──prep──▶ source.mp4 + audio.mp3 ──asr_volc──▶ transcript.json (per-character timestamps)
       ──autocut + agent reads──▶ retakes/fillers marked ──review_server──▶ localhost strike-through review
-      ──render──▶ cut.mp4 + cut.json ──subs──▶ subtitles (simple / per-word highlight)
+      ──render──▶ cut.mp4 + cut.json ──reviewed semantic cue plan + subs──▶ subtitles (simple / per-word highlight)
                                      ──navbar──▶ navbar.mp4 (black/white/blue, same length)
 ```
 
@@ -25,18 +25,23 @@ cd agent-skills/skills/talkcut
 sudo pacman -S --needed ffmpeg python-pillow noto-fonts-cjk   # Arch/Omarchy (doctor prints Debian/macOS equivalents)
 python3 scripts/doctor.py
 python3 scripts/talkcut.py run ~/videos/clip1.mp4 ~/videos/clip2.mp4   # opens the review page at http://127.0.0.1:8765
-python3 scripts/talkcut.py render                                      # after review: cut.mp4, subtitles, navbar.mp4
+python3 scripts/talkcut.py render --no-burn                            # clean cut + draft subtitles
+# Agent writes and reviews work/caption-plan.json (exact cue strings; see SKILL.md)
+python3 scripts/talkcut.py render                                      # reviewed semantic captions; rejects missing/unreviewed plan
 python3 scripts/talkcut.py status
 ```
 
-Stages are cached in `work/state.json` and the raw ASR result in `~/.cache/talkcut/asr/`, so reruns are instant and the same audio is never billed twice. Full workflow, the agent's semantic-pass contract and data formats: [SKILL.md](SKILL.md).
+Stages are cached in `work/state.json` and the raw ASR result in `~/.cache/talkcut/asr/`, so completed stages/results can be reused. A cache is not an exactly-once billing guarantee after an ambiguous request failure. Full workflow, semantic cue contract and data formats: [SKILL.md](SKILL.md). Read [production lessons](references/production-lessons.md) before real-footage delivery.
+
+Chinese captions follow meaning and speech rhythm; 8–12 characters is a flexible guide, not a fixed splitter. Final burns require a reviewed cue plan, exact retained-text coverage and valid timing. Subtitle plan changes invalidate the driver cache. Run focused regressions with `python3 -m unittest discover -s scripts -p test_caption_plan.py`.
 
 ## Validation status
 
 - ✅ End-to-end on real Chinese speech generated with espeak-ng (two clips) plus a simulated Doubao ASR result: the ASR cache hit, so nothing was billed. A retake was removed with the last take kept, a mid-sentence restart was trimmed with `cut_words`, and a fillers-only sentence was cut. A 2.0 s silence was capped (all remaining silences ≤ 0.61 s). 25.6 s → 15.7 s, with karaoke subtitles burned in and a navbar of matching length. A rerun skipped every stage.
 - ✅ plan.json validator rejects wrong-direction retakes, out-of-range word indexes and empty reasons.
 - ✅ Review page rendered in headless Chrome (colour-coded rule/AI cuts, live kept duration).
-- ⏳ Not yet verified: a live Volcengine call (needs a key), keyboard/undo/autosave in an interactive browser session, and semantic quality on real footage.
+- ✅ Real Linux footage was processed with live Doubao Flash ASR, manually reviewed cuts, parent/independently reviewed semantic subtitles, chapter navigation and two roughly five-minute 1.05× episodes. Final episodes passed full decoding and browser playback/seek checks. Sources and manual decisions were preserved.
+- Scope: the real-footage run used an extended local workspace. Its richer review UI, bounded range renderer, rounded caption styling and Clip/Episode delivery pages are **not yet all bundled into this CLI**. The reusable semantic cue validator, burn gates, manual word protection and ffmpeg invocation fix are included here; see production lessons for workflow requirements. Sampled playback/visual checks are not a complete listening-quality guarantee.
 
 ## References
 
