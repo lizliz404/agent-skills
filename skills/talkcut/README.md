@@ -38,6 +38,10 @@ Stages are cached in `work/state.json` and the raw ASR result in `~/.cache/talkc
 - ✅ Review page rendered in headless Chrome (colour-coded rule/AI cuts, live kept duration).
 - ⏳ Not yet verified: a live Volcengine call (needs a key), keyboard/undo/autosave in an interactive browser session, and semantic quality on real footage.
 
+## Ideas
+
+- [Browser-only Screen Studio-style recorder](references/ideas/2026-10-18-browser-screen-studio.md) (Liz, 2026-10-18, verbatim). Planned as a separate repo.
+
 ## References
 
 Local snapshots, with commit SHAs and licenses, are listed in [references/vendor/README.md](references/vendor/README.md). Vendored code keeps its own upstream license, not this repo's MIT.
