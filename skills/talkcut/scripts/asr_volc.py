@@ -2,8 +2,8 @@
 """Steps 2-3: Volcengine Doubao Speech (豆包语音) big-model file ASR -> transcript.json with per-character timestamps.
 
 Usage:
-  python3 asr_volc.py work/audio.mp3 -o work/transcript.json            # Flash (synchronous, default)
-  python3 asr_volc.py work/audio.mp3 -o work/transcript.json --standard # Standard (async submit/query)
+  python3 asr_volc.py work/audio.mp3 -o work/transcript.json            # auto: Flash, or Standard if over Flash limits
+  python3 asr_volc.py work/audio.mp3 -o work/transcript.json --standard # force Standard (async submit/query)
   python3 asr_volc.py --normalize raw.json -o work/transcript.json      # only convert an existing raw result
 
 Credentials (read only from env vars / local env file, never committed):
@@ -11,11 +11,16 @@ Credentials (read only from env vars / local env file, never committed):
   Old console: VOLC_APP_ID + VOLC_ACCESS_TOKEN -> X-Api-App-Key / X-Api-Access-Key
   Also reads ~/.agents/env/doubao-tts.env (shared with this repo's doubao-tts skill).
 
+Flash limits (official docs, 2026-10): audio <= 2 h and <= 100 MB (inline upload ideally <= 20 MB);
+anything larger goes to Standard automatically. Docs: https://www.volcengine.com/docs/6561/1631584 (Flash),
+https://www.volcengine.com/docs/6561/1354868 (Standard).
+
 Only the needed options: punctuation + ITN + utterances (with words). No diarization, emotion, speech rate, etc., to save cost.
 """
 import argparse, base64, json, os, sys, time, urllib.request, uuid
 from pathlib import Path
 
+FLASH_MAX_SEC, FLASH_MAX_BYTES = 2 * 3600, 100 * 1024 * 1024
 BASE = "https://openspeech.bytedance.com/api/v3/auc/bigmodel"
 FLASH = (BASE + "/recognize/flash", "volc.bigasr.auc_turbo")
 STANDARD = (BASE + "/submit", BASE + "/query", "volc.bigasr.auc")
@@ -83,12 +88,27 @@ def standard(audio):
         time.sleep(5)
         h, body = post(qry, qh, {})
         code = h.get("X-Api-Status-Code")
+        if code == "20000003":
+            sys.exit("Audio is silent (20000003)")
         if code == "20000000":
             return json.loads(body)
         if code not in ("20000001", "20000002", None):
             sys.exit(f"Recognition failed {code} {h.get('X-Api-Message')}")
         print(".", end="", flush=True)
     sys.exit("Polling timed out")
+
+
+def over_flash_limits(audio):
+    size = Path(audio).stat().st_size
+    try:
+        from common import duration
+        sec = duration(audio)
+    except Exception:
+        sec = 0
+    if size > FLASH_MAX_BYTES or sec > FLASH_MAX_SEC:
+        print(f"{size/1e6:.0f} MB / {sec/60:.0f} min exceeds Flash limits -> using Standard")
+        return True
+    return False
 
 
 def normalize(raw, media=None):
@@ -116,7 +136,7 @@ if __name__ == "__main__":
     else:
         if not a.audio:
             p.error("an audio file is required")
-        raw = standard(a.audio) if a.standard else flash(a.audio)
+        raw = standard(a.audio) if a.standard or over_flash_limits(a.audio) else flash(a.audio)
         Path(a.out).with_suffix(".raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     t = normalize(raw, a.media)
     Path(a.out).write_text(json.dumps(t, ensure_ascii=False, indent=2), encoding="utf-8")

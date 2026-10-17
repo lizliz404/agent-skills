@@ -18,25 +18,25 @@ The existing projects are essentially **glue layers**: ffmpeg does the real work
 - Python 3.9+, ffmpeg/ffprobe; the navigation bar needs `pip install pillow` and a CJK font
 - Volcengine Doubao Speech (豆包语音) big-model file ASR: `DOUBAO_API_KEY` (or `VOLC_APP_ID` + `VOLC_ACCESS_TOKEN`); see [references/volcengine-asr.md](references/volcengine-asr.md)
 
-## Quick start
+## Quick start (Linux / Arch / Omarchy)
 
 ```bash
-S=skills/talkcut/scripts
-python3 $S/prep.py a.mp4 b.mp4 -o work/
-python3 $S/asr_volc.py work/audio.mp3 -o work/transcript.json
-python3 $S/autocut.py work/transcript.json --pause 0.5      # then the agent adds a plan.json
-python3 $S/review_server.py work/transcript.json            # http://127.0.0.1:8765
-python3 $S/render.py work/transcript.json
-python3 $S/subs.py work/cut.json --style karaoke --burn
-python3 $S/navbar.py work/cut.json work/chapters.json
+cd agent-skills/skills/talkcut
+sudo pacman -S --needed ffmpeg python-pillow noto-fonts-cjk   # Arch/Omarchy (doctor prints Debian/macOS equivalents)
+python3 scripts/doctor.py
+python3 scripts/talkcut.py run ~/videos/clip1.mp4 ~/videos/clip2.mp4   # opens the review page at http://127.0.0.1:8765
+python3 scripts/talkcut.py render                                      # after review: cut.mp4, subtitles, navbar.mp4
+python3 scripts/talkcut.py status
 ```
 
-Full workflow, AI decision rules and data formats: [SKILL.md](SKILL.md).
+Stages are cached in `work/state.json` and the raw ASR result in `~/.cache/talkcut/asr/`, so reruns are instant and the same audio is never billed twice. Full workflow, the agent's semantic-pass contract and data formats: [SKILL.md](SKILL.md).
 
 ## Validation status
 
-- ✅ End-to-end on a synthetic video (testsrc + sine tone) with a fake transcript: concat, heuristic retake removal, cut with timeline remap, SRT/ASS, burn-in in both styles, navigation bar (duration matches the cut), review server (page, Range seeking, save).
-- ⏳ Not yet verified: live Volcengine ASR calls (needs a key), semantic cut quality on real talking-head footage, review-page interaction in a real browser.
+- ✅ End-to-end on real Chinese speech generated with espeak-ng (two clips) plus a simulated Doubao ASR result: the ASR cache hit, so nothing was billed. A retake was removed with the last take kept, a mid-sentence restart was trimmed with `cut_words`, and a fillers-only sentence was cut. A 2.0 s silence was capped (all remaining silences ≤ 0.61 s). 25.6 s → 15.7 s, with karaoke subtitles burned in and a navbar of matching length. A rerun skipped every stage.
+- ✅ plan.json validator rejects wrong-direction retakes, out-of-range word indexes and empty reasons.
+- ✅ Review page rendered in headless Chrome (colour-coded rule/AI cuts, live kept duration).
+- ⏳ Not yet verified: a live Volcengine call (needs a key), keyboard/undo/autosave in an interactive browser session, and semantic quality on real footage.
 
 ## References
 

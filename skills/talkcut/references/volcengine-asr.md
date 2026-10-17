@@ -8,6 +8,13 @@ Official docs: Standard file ASR <https://www.volcengine.com/docs/6561/1354868>;
 2. Create a key under API Key management → `export DOUBAO_API_KEY=...` locally, or put it in `~/.agents/env/doubao-tts.env` (shared with this repo's doubao-tts skill).
 3. Old-console users: `VOLC_APP_ID` (APP ID) + `VOLC_ACCESS_TOKEN` (Access Token), sent as `X-Api-App-Key` / `X-Api-Access-Key`.
 
+## Limits (checked against the official docs, 2026-10-17)
+
+- Flash: audio ≤ 2 h and ≤ 100 MB, WAV/MP3/OGG Opus; inline binary upload ideally ≤ 20 MB (depends on upload bandwidth). Longer files must use Standard; `asr_volc.py` switches automatically.
+- Flash accepts the same request fields as Standard minus callback and the call-centre extras (language ID, emotion, gender, volume, speech rate). talkcut uses none of those anyway.
+- 16 kHz mono 48 kbps mp3 ≈ 21 MB per hour, so a typical talking-head recording stays well inside Flash.
+- `enable_ddc` defaults to false upstream; talkcut sets it to false explicitly.
+
 ## Endpoints
 
 | Tier | URL | Resource-Id | Mode |

@@ -8,14 +8,27 @@ description: >-
   Use when the user wants to cut a talking-head video, remove retakes, add subtitles, or add chapter navigation.
 license: MIT
 metadata:
-  version: "0.1.0"
-  evidence-basis: "Scripts run end-to-end on a synthetic video and fake transcript; live Volcengine ASR and semantic cut quality on real footage not yet verified"
+  version: "0.2.0"
+  evidence-basis: "End-to-end on espeak-ng Chinese speech with a simulated ASR result (retake, mid-sentence restart, filler); review page rendered in headless Chrome; live Volcengine ASR and semantic cut quality on real footage not yet verified"
 ---
 
 # talkcut
 
 ffmpeg and the ASR service do the heavy lifting. The agent does only what it is actually good at: **reading the transcript** (which lines are retakes, how to chapter it) and **gluing the pieces together**.
 All scripts live in `scripts/` and need only Python 3 stdlib + ffmpeg/ffprobe; the navigation bar additionally needs Pillow.
+
+## Quick start (Linux / Arch / Omarchy, also macOS)
+
+```bash
+python3 scripts/doctor.py                          # checks ffmpeg+libass+x264, Pillow, CJK font, Doubao key, disk; prints fix commands
+python3 scripts/talkcut.py run clip1.mp4 clip2.mp4 # prep -> ASR (cached by audio hash) -> rule cuts -> review server
+#   agent: read work/transcript.json, write work/plan.json (contract below), rerun the same `run` command
+python3 scripts/talkcut.py render                  # cut + karaoke subtitles + navbar (if work/chapters.json exists)
+python3 scripts/talkcut.py status
+```
+On Arch/Omarchy the one-time setup is `sudo pacman -S --needed ffmpeg python-pillow noto-fonts-cjk`.
+Every stage is cached in `work/state.json`; reruns skip finished steps, and the raw ASR result is cached in
+`~/.cache/talkcut/asr/<sha256>.json`, so the same audio is never billed twice. The steps below are what the driver runs.
 
 ## Workflow
 
@@ -26,8 +39,7 @@ All artifacts go into one working directory (`work/` below); scripts hand off on
    Multiple clips are re-encoded uniformly then joined; a single clip is copied. Join in the order the user gave; never reorder.
 
 2. **Transcribe (Volcengine Doubao Speech big-model file ASR)**
-   `python3 scripts/asr_volc.py work/audio.mp3 -o work/transcript.json` (Flash, synchronous).
-   If the audio exceeds Flash limits, add `--standard` (async submit/query).
+   `python3 scripts/asr_volc.py work/audio.mp3 -o work/transcript.json` uses Flash (synchronous) and switches automatically to Standard (async submit/query) when the audio exceeds Flash limits (> 2 h or > 100 MB). `--standard` forces Standard.
    Credentials come only from env vars: `DOUBAO_API_KEY` (new console) or `VOLC_APP_ID` + `VOLC_ACCESS_TOKEN` (old console).
    Enable only punctuation + ITN + utterances (with per-character words). **Keep disfluency smoothing `enable_ddc` off** (we need fillers and repeats to decide cuts). No diarization or other paid extras.
    API details and setup: [references/volcengine-asr.md](references/volcengine-asr.md). If credentials are missing, stop and tell the user where to enable them; do not switch to another cloud provider.
@@ -35,18 +47,33 @@ All artifacts go into one working directory (`work/` below); scripts hand off on
 3. **Transcript** `work/transcript.json` (see "Data format"). The raw response is also saved as `transcript.raw.json`.
 
 4. **AI first-pass cut** (edits keep flags only; the video is untouched)
-   - Run the heuristic first: `python3 scripts/autocut.py work/transcript.json --pause 0.5`
-     Adjacent sentences with bigram similarity ≥ 0.72 within 20 s → retake: cut the earlier ones, keep the last. Sentences made only of fillers → cut.
-   - Then **the agent must read the whole transcript**, catch what the rules miss, write `work/plan.json`, and run `autocut.py work/transcript.json --plan work/plan.json`:
-     - Rephrased retakes (same meaning, different words) → cut the earlier ones, keep the last. **The last take is assumed best** unless it is clearly cut off.
-     - Fragments and instant self-corrections ("this… no, that") → use `cut_words` to remove up to the correction.
-     - Fillers (嗯/啊/那个, "um", "like"): cut only standalone ones or obvious stumbles; keep fillers that carry meaning.
-     - When unsure, keep it and write a reason so the user decides on the review page. Under-cutting beats cutting meaningful content.
-   - Breathing room: `pause_keep` (default 0.5 s, tune within 0.4–0.6). Pauses between words ≤ this value stay as-is; longer ones are shortened to it.
+   - The driver runs the heuristic first (adjacent sentences with bigram similarity ≥ 0.72 within 20 s → retake, keep the last; fillers-only sentences → cut). Its cuts are tagged `by: "rule"`.
+   - Then **the agent does the semantic pass** using the contract below, writes `work/plan.json`, and reruns `talkcut.py run …` (or `autocut.py work/transcript.json --plan work/plan.json`). Plan cuts are tagged `by: "ai"`; anything the user toggles in the review page is `by: "manual"` and is never overridden.
+   - Breathing room: `pause_keep` (default 0.5 s, tune within 0.4–0.6). Pauses between kept words ≤ this value stay as-is; longer ones are shortened to it. Pauses are handled by render.py; do not cut sentences just to remove silence.
+
+   **Semantic-pass contract (follow exactly).**
+   Read every sentence of `work/transcript.json` (`id`, `text`, `start`, `end`, `words[]` with indexes from 0) in order. Then write `work/plan.json`:
+   ```json
+   {
+     "cut":       [{"id": 1, "type": "retake", "kept": 2, "reason": "same line restated; keep the last take #2"}],
+     "cut_words": [{"id": 3, "from": 0, "to": 3, "reason": "restart mid-sentence: drop the first 我们今天"}],
+     "keep":      [{"id": 0, "reason": "rule flagged it but it is intentional repetition for emphasis"}],
+     "notes":     "optional free text for the user"
+   }
+   ```
+   - `type` ∈ `retake | false_start | filler | off_topic | other`. A `retake` **must** name `kept`: the id of the surviving take, which must come **after** the cut one and must not be cut itself. When a line is said 3 times, cut the first two, both with `kept` = the third.
+   - Retakes count by **meaning**, not wording: "我每句话都会说好几遍" then "我每句话都会重复说好几遍" → cut the first. The last take wins unless it is clearly broken off; in that case keep the best complete one and say why.
+   - Partial restart inside one sentence ("我们今天，我们今天只留最后一遍"): use `cut_words` with inclusive word indexes `from..to` covering the abandoned start. Never use `cut_words` for the whole sentence; use `cut`.
+   - Fillers (嗯/啊/那个, "um", "like"): cut standalone ones or obvious stumbles; keep fillers that carry tone or meaning.
+   - Use `keep` to overrule a heuristic cut that is wrong (intentional repetition, callbacks, lists).
+   - Never cut for silence alone, never reorder, never rewrite text. When unsure, keep it and mention it in `notes`.
+   - Validate before applying: `python3 scripts/autocut.py work/transcript.json --plan work/plan.json --check-only`. Fix every reported error; exit code 2 means invalid.
 
 5. **Localhost review page**
-   `python3 scripts/review_server.py work/transcript.json` → open `http://127.0.0.1:8765`.
-   Click a sentence to toggle keep/cut (cut is shown struck through); Alt/⌥+click cuts a single word; double-click plays from there; "Preview final cut" skips cut parts during playback; drag the pause slider; ⌘/Ctrl+S saves back to the JSON (previous version kept as `transcript.bak.json`).
+   `talkcut.py run` starts it (or `python3 scripts/review_server.py work/transcript.json`) → `http://127.0.0.1:8765`.
+   Cuts are struck through and colour-coded by source: amber = rule, violet = AI, red = you. Live counters show kept duration vs original.
+   Keys: `space` play/pause, `j`/`k` next/previous sentence (seeks video), `x` toggle cut, `p` preview (plays the final cut, skipping cut parts and capping long pauses), `u` or ⌘/Ctrl+Z undo. Click toggles a sentence, Alt/⌥+click a word cuts just that word, double-click plays from there.
+   Edits autosave to `transcript.json` (previous version kept as `transcript.bak.json`).
    Give the user the URL and **wait for confirmation** before rendering. The user may also say "keep sentence 12" in chat; the agent edits the JSON directly.
 
 6. **Render** `python3 scripts/render.py work/transcript.json` → `work/cut.mp4` + `work/cut.json` (transcript on the new timeline).
