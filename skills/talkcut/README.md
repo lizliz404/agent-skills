@@ -43,6 +43,10 @@ Chinese captions follow meaning and speech rhythm; 8–12 characters is a flexib
 - ✅ Real Linux footage was processed with live Doubao Flash ASR, manually reviewed cuts, parent/independently reviewed semantic subtitles, chapter navigation and two roughly five-minute 1.05× episodes. Final episodes passed full decoding and browser playback/seek checks. Sources and manual decisions were preserved.
 - Scope: the real-footage run used an extended local workspace. Its richer review UI, bounded range renderer, rounded caption styling and Clip/Episode delivery pages are **not yet all bundled into this CLI**. The reusable semantic cue validator, burn gates, manual word protection and ffmpeg invocation fix are included here; see production lessons for workflow requirements. Sampled playback/visual checks are not a complete listening-quality guarantee.
 
+## Ideas
+
+- [Browser-only Screen Studio-style recorder](references/ideas/2026-10-18-browser-screen-studio.md) (Liz, 2026-10-18, verbatim). Planned as a separate repo.
+
 ## References
 
 Local snapshots, with commit SHAs and licenses, are listed in [references/vendor/README.md](references/vendor/README.md). Vendored code keeps its own upstream license, not this repo's MIT.
