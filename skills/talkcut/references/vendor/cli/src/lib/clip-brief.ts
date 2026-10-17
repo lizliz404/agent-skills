@@ -1,0 +1,349 @@
+/**
+ * 长剪短人读简报渲染（add-long2short-clip-brief）：把服务端**已经返回**的编剧元信息
+ * （title/summary/score+score_reason/jumpcut_note/tags·themes·genres·moods/highlight_words）
+ * 渲成 Markdown —— 逐 clip 一份 `clip.md`，产物根一份 `clips.md` 总览。
+ *
+ * 纯函数、纯增文件：`result.json` / `report.json` / `--json` 机读契约逐字节不动。
+ * 字段缺失时**整节省略**（服务端演进不产空壳、不抛）——这是本模块唯一的硬约束。
+ */
+
+/** 云端 clip 的松散视图：只读已知字段，未知字段一律忽略（服务端可自由演进）。 */
+export type ClipMeta = Record<string, unknown>;
+
+export interface OverviewContext {
+	source: string; // 毛片绝对路径
+	jumpCut: boolean;
+	splitMaterials?: { landed: number; total: number };
+	taskId?: string;
+	/** 根级 errors（服务端 + 落地）：只读 `clip{i}:polish:speed` / `clip{i}:polish:camera` 降级键（link-long2short-for-cli-speed / -camera-move）。 */
+	errors?: Record<string, string>;
+	/** 服务端 `report.transcript_word_timing`：`line_even` 时提示字幕词级时间为近似值（link-long2short-for-cli-transcript）。 */
+	transcriptWordTiming?: string;
+}
+
+const str =(v: unknown): string | undefined => {
+	const s = typeof v === "string" ? v.trim() : "";
+	return s ? s : undefined;
+};
+const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const list = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x): x is string => !!x) : []);
+
+/** ms → m:ss（≥1h 时 h:mm:ss）。负值/非数按 0 处理。 */
+export function fmtTime(ms: unknown): string {
+	const total = Math.max(0, Math.round((num(ms) ?? 0) / 1000));
+	const s = total % 60;
+	const m = Math.floor(total / 60) % 60;
+	const h = Math.floor(total / 3600);
+	const mm = h ? String(m).padStart(2, "0") : String(m);
+	return `${h ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+}
+
+/** 取路径末段（不引 node:path，本模块保持纯字符串处理、Win/POSIX 分隔符都吃）。 */
+const baseName = (p: string): string => p.split(/[\\/]/).pop() || p;
+
+/** 表格单元格转义：竖线与换行会撑破 Markdown 表。 */
+const cell = (s: string): string => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+
+/** 跳剪备注翻成人话；LLM 自由文本原样透出。 */
+function jumpcutText(note: string): string {
+	if (note === "jumpcut_off") return "未启用跳剪（`--no-jump-cut`），片段按原样保留。";
+	if (note === "too_short") return "片段过短，跳剪跳过（保留全部内容）。";
+	if (note === "degraded") return "跳剪降级：本条未压缩，保留全部内容。";
+	return note;
+}
+
+/**
+ * 云端调速摘要（link-long2short-for-cli-speed）：`clip.polish = {speed: {factor, keep_pitch}, track_duration_ms}`。
+ * 只在服务端确实把倍率写进了该 clip 工程时出现；缺席 ⇒ 未调速（或调速降级），按原速口径渲染。
+ */
+function speedOf(clip: ClipMeta): { factor: number; keepPitch: boolean; trackMs?: number } | undefined {
+	const polish = clip.polish as ClipMeta | undefined;
+	const speed = polish?.speed as ClipMeta | undefined;
+	const factor = num(speed?.factor);
+	if (factor == null) return undefined;
+	return { factor, keepPitch: speed?.keep_pitch !== false, trackMs: num(polish?.track_duration_ms) };
+}
+
+/** 云端运镜摘要（link-long2short-for-cli-camera-move）：`clip.polish.camera_move.count`，0 也是有效值。 */
+function cameraCountOf(clip: ClipMeta): number | undefined {
+	const camera = (clip.polish as ClipMeta | undefined)?.camera_move as ClipMeta | undefined;
+	return num(camera?.count);
+}
+
+/** 一条切片的时长与片段数（缺 segments 时退化为单段）。调速生效时取变速后的轨上时长。 */
+function clipDurationMs(clip: ClipMeta): number | undefined {
+	return speedOf(clip)?.trackMs ?? num(clip.total_duration_ms) ?? num(clip.duration_ms);
+}
+function clipSegmentCount(clip: ClipMeta): number | undefined {
+	return num(clip.segment_count) ?? (Array.isArray(clip.segments) ? clip.segments.length : undefined);
+}
+
+/** 切片在源片上的起止（取首末子段；无 segments 时用 clip 自身 begin/end）。 */
+function sourceSpan(clip: ClipMeta): [number, number] | undefined {
+	const segs = Array.isArray(clip.segments) ? (clip.segments as ClipMeta[]) : [];
+	if (segs.length) {
+		const b = num(segs[0]?.begin_time);
+		const e = num(segs[segs.length - 1]?.end_time);
+		if (b != null && e != null) return [b, e];
+	}
+	const b = num(clip.begin_time);
+	const e = num(clip.end_time);
+	return b != null && e != null ? [b, e] : undefined;
+}
+
+/**
+ * 渲染单条切片简报。`files` 为 materialize 的 format → 落地路径表（可空）。
+ */
+export function renderClipBrief(clip: ClipMeta, index: number, files: Record<string, string[]> = {}): string {
+	const title = str(clip.title);
+	const out: string[] = [`# clip${index}${title ? `「${title}」` : ""}`, ""];
+
+	// 概览：时长 / 片段数 / 在源片的位置——任一缺失就少一项，全缺则整行省略
+	const bits: string[] = [];
+	const dur = clipDurationMs(clip);
+	if (dur != null) bits.push(`时长 ${fmtTime(dur)}`);
+	const segCount = clipSegmentCount(clip);
+	if (segCount != null) bits.push(`${segCount} 个保留片段`);
+	const span = sourceSpan(clip);
+	if (span) bits.push(`源片 ${fmtTime(span[0])}–${fmtTime(span[1])}`);
+	if (bits.length) out.push(`- ${bits.join(" · ")}`, "");
+	const sp = speedOf(clip);
+	if (sp) out.push(`- 已整体 ${sp.factor}x（${sp.keepPitch ? "保音高" : "音高随速度变"}），倍率写在工程里，可在客户端改回`, "");
+	const cam = cameraCountOf(clip);
+	if (cam != null) {
+		out.push(
+			cam > 0
+				? `- 运镜 ${cam} 处（推 / 拉镜头），写在工程里：客户端与剪映可见、可改；本地渲染与 PR 工程看不到`
+				: "- 运镜 0 处：按概率抽取，本条没有抽中（属正常）",
+			"",
+		);
+	}
+
+	const score = num(clip.score);
+	const reason = str(clip.score_reason);
+	if (score != null || reason) {
+		out.push("## 入选理由", "");
+		out.push([score != null ? `**评分 ${score}**` : null, reason].filter(Boolean).join(" — "), "");
+	}
+
+	const summary = str(clip.summary);
+	if (summary) out.push("## 简介", "", summary, "");
+
+	const note = str(clip.jumpcut_note);
+	if (note) out.push("## 跳剪", "", jumpcutText(note), "");
+
+	// 分类与调性：四类各自可缺，全缺则整节省略
+	const cats: Array<[string, string[]]> = [
+		["主题", list(clip.themes)],
+		["标签", list(clip.tags)],
+		["类型", list(clip.genres)],
+		["调性", list(clip.moods)],
+	];
+	const shown = cats.filter(([, v]) => v.length);
+	if (shown.length) {
+		out.push("## 分类与调性", "");
+		for (const [k, v] of shown) out.push(`- ${k}：${v.join("、")}`);
+		out.push("");
+	}
+
+	const hl = Array.isArray(clip.highlight_words) ? (clip.highlight_words as ClipMeta[]) : [];
+	const hlRows = hl.map((h) => ({ text: str(h?.text), at: num(h?.begin_time) })).filter((h) => h.text);
+	if (hlRows.length) {
+		out.push("## 高光词（源片时码）", "");
+		for (const h of hlRows) out.push(`- ${h.at != null ? `${fmtTime(h.at)} ` : ""}「${h.text}」`);
+		out.push("");
+	}
+
+	const formats = Object.keys(files).filter((f) => files[f]?.length);
+	if (formats.length) {
+		out.push("## 本条工程文件", "");
+		// 只列文件名：clip.md 与产物同处 clip{i}/，绝对路径在这儿是噪音
+		for (const f of formats) out.push(`- ${f}：${files[f].map(baseName).join("、")}`);
+		out.push("");
+	}
+
+	return `${out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}
+
+/**
+ * 渲染产物根总览：任务级事实 + 全部切片一张表（一眼选出先精修哪条）。
+ */
+export function renderClipsOverview(clips: ClipMeta[], ctx: OverviewContext): string {
+	const name = ctx.source.split(/[\\/]/).pop() || ctx.source;
+	const out: string[] = [`# ${name} · 长剪短总览`, ""];
+
+	out.push(`- 源片：\`${ctx.source}\``);
+	out.push(`- 切片：${clips.length} 条`);
+	out.push(`- 跳剪：${ctx.jumpCut ? "开" : "关"}`);
+	if (ctx.splitMaterials?.total) out.push(`- 分屏素材：${ctx.splitMaterials.landed}/${ctx.splitMaterials.total} 条已落地`);
+	if (ctx.taskId) out.push(`- task_id：\`${ctx.taskId}\``);
+	out.push("");
+
+	out.push("| # | 标题 | 时长 | 评分 | 简介 |", "| --- | --- | --- | --- | --- |");
+	for (const [i, clip] of clips.entries()) {
+		const dur = clipDurationMs(clip);
+		const score = num(clip.score);
+		const sp = speedOf(clip);
+		const cam = cameraCountOf(clip);
+		const durCell =
+			dur != null ? `${fmtTime(dur)}${sp ? `（${sp.factor}x）` : ""}${cam != null ? ` · 运镜 ${cam} 处` : ""}` : "—";
+		out.push(
+			`| clip${i} | ${cell(str(clip.title) ?? "—")} | ${durCell} | ${score ?? "—"} | ${cell(str(clip.summary) ?? "—")} |`,
+		);
+	}
+	out.push("", "> 逐条入选理由、跳剪说明、高光词见各 `clip{i}/clip.md`。");
+
+	// 调速降级如实列出（link-long2short-for-cli-speed）：这些 clip 的工程按原速产出，与变速成功的分开说
+	const unsped = Object.keys(ctx.errors ?? {})
+		.map((k) => /^clip(\d+):polish:speed$/.exec(k)?.[1])
+		.filter((x): x is string => x != null)
+		.map(Number)
+		.sort((a, b) => a - b);
+	if (unsped.length) {
+		out.push("", "## ⚠️ 未能变速的切片", "");
+		for (const i of unsped) out.push(`- clip${i}：调速写入失败，工程按原速产出（原因见 result.json errors）`);
+	}
+	// 运镜降级如实列出（link-long2short-for-cli-camera-move）：这些 clip 的工程不带运镜（调速结果保留）
+	const noCamera = Object.keys(ctx.errors ?? {})
+		.map((k) => /^clip(\d+):polish:camera$/.exec(k)?.[1])
+		.filter((x): x is string => x != null)
+		.map(Number)
+		.sort((a, b) => a - b);
+	if (noCamera.length) {
+		out.push("", "## ⚠️ 未能加运镜的切片", "");
+		for (const i of noCamera) out.push(`- clip${i}：运镜写入失败，工程不带运镜（原因见 result.json errors）`);
+	}
+	// 字幕文件来源的近似字级（link-long2short-for-cli-transcript）
+	if (ctx.transcriptWordTiming === "line_even") {
+		out.push("", "> 字幕来源是字幕文件：上字幕时按行内均分，词级时间为近似值（整行起止准确）。");
+	}
+	return `${out.join("\n")}\n`;
+}
+
+// ---------------------------------------------------------------- 精剪报告（add-tool-video-long2short-pro）
+
+/** 精剪润色项英文键 → 人话。未知键原样透出（服务端新增项不至于渲成空白）。 */
+const POLISH_LABEL: Record<string, string> = {
+	split_screen: "智能分屏",
+	camera: "克制运镜",
+	speed: "整体调速",
+	seam: "接缝过渡",
+	subtitle: "智能字幕",
+	subtitle_remap: "字幕时轴重映射",
+	purify_source: "去除原字幕",
+	unknown: "未具名润色项",
+};
+
+export interface ProReportContext {
+	source: string;
+	taskId?: string;
+	/** 逐条成片的落地文件名（按 clip 序），缺则该行不渲文件名。 */
+	clipFiles?: Array<string | undefined>;
+	/**
+	 * 分屏**请求态**（CLI 侧是否带了 `--split-screen`）；缺席则该行整行省略。
+	 * 只回显请求态：精剪 report 无 split_manifest，CLI 无从得知实际做了几处，
+	 * MUST NOT 用「无 split_screen 降级」反推「做了」（adjust-long2short-pro-split-screen-default）。
+	 */
+	splitScreen?: boolean;
+}
+
+/**
+ * 渲染精剪报告（单份 `clips.md`）：任务级事实 + 总览表 + 逐条小节 + 降级明细。
+ *
+ * 与粗剪有意不同形态：精剪产物是平铺的 `clip{i}.mp4`、没有逐条子目录，散成 N 份反而更难读。
+ * 字段抽取复用本模块既有纯函数（粗剪渲染路径一行未动，产物逐字节不变）。
+ */
+export function renderProReport(clips: ClipMeta[], report: ClipMeta, ctx: ProReportContext): string {
+	const name = ctx.source.split(/[\/]/).pop() || ctx.source;
+	const out: string[] = [`# ${name} · 长剪短精剪报告`, ""];
+
+	out.push(`- 源片：\`${ctx.source}\``);
+	out.push(`- 成片：${clips.length} 条`);
+	const jc = report?.jump_cut;
+	if (typeof jc === "boolean") out.push(`- 跳剪：${jc ? "开" : "关"}`);
+	// 分屏由 skill 层开工问询决定、agent 代用户带 flag——用户拿到自己没亲手要过的分屏画面，报告必须说
+	if (typeof ctx.splitScreen === "boolean") {
+		out.push(ctx.splitScreen ? "- 分屏：开（只对多人同框段生效，单人素材通常无分屏画面）" : "- 分屏：关");
+	}
+	if (ctx.taskId) out.push(`- task_id：\`${ctx.taskId}\``);
+	out.push("");
+
+	// 总览表：一眼选出先看哪条
+	out.push("| # | 标题 | 时长 | 评分 | 简介 |", "| --- | --- | --- | --- | --- |");
+	for (const [i, clip] of clips.entries()) {
+		const dur = clipDurationMs(clip);
+		const score = num(clip.score);
+		out.push(
+			`| clip${i} | ${cell(str(clip.title) ?? "—")} | ${dur != null ? fmtTime(dur) : "—"} | ${score ?? "—"} | ${cell(str(clip.summary) ?? "—")} |`,
+		);
+	}
+	out.push("");
+
+	// 降级明细：润色是 best-effort，成片照出但某些效果没做成——不点名用户无从察觉
+	const degraded = report?.degraded_items;
+	const degRows: string[] = [];
+	if (degraded && typeof degraded === "object" && !Array.isArray(degraded)) {
+		for (const [k, v] of Object.entries(degraded as Record<string, unknown>)) {
+			const names = list(v).map((x) => POLISH_LABEL[x] ?? x);
+			if (names.length) degRows.push(`- **${k}**：${names.join("、")}`);
+		}
+	}
+	if (degRows.length) {
+		out.push("## ⚠️ 润色降级", "");
+		out.push("以下片子照常出片，但列出的润色项**没有做成**——效果与预期不同，别当成完整成片直接发布。", "");
+		out.push(...degRows, "");
+	}
+
+	// 逐条小节
+	for (const [i, clip] of clips.entries()) {
+		const title = str(clip.title);
+		out.push("---", "", `## clip${i}${title ? `「${title}」` : ""}`, "");
+
+		const bits: string[] = [];
+		const dur = clipDurationMs(clip);
+		if (dur != null) bits.push(`时长 ${fmtTime(dur)}`);
+		const segCount = clipSegmentCount(clip);
+		if (segCount != null) bits.push(`${segCount} 个保留片段`);
+		const span = sourceSpan(clip);
+		if (span) bits.push(`源片 ${fmtTime(span[0])}–${fmtTime(span[1])}`);
+		const f = ctx.clipFiles?.[i];
+		if (f) bits.push(`成片 ${baseName(f)}`);
+		if (bits.length) out.push(`- ${bits.join(" · ")}`, "");
+
+		const score = num(clip.score);
+		const reason = str(clip.score_reason);
+		if (score != null || reason) {
+			out.push("### 入选理由", "");
+			out.push([score != null ? `**评分 ${score}**` : null, reason].filter(Boolean).join(" — "), "");
+		}
+
+		const summary = str(clip.summary);
+		if (summary) out.push("### 简介", "", summary, "");
+
+		const note = str(clip.jumpcut_note);
+		if (note) out.push("### 跳剪", "", jumpcutText(note), "");
+
+		const cats: Array<[string, string[]]> = [
+			["主题", list(clip.themes)],
+			["标签", list(clip.tags)],
+			["类型", list(clip.genres)],
+			["调性", list(clip.moods)],
+		];
+		const shown = cats.filter(([, v]) => v.length);
+		if (shown.length) {
+			out.push("### 分类与调性", "");
+			for (const [k, v] of shown) out.push(`- ${k}：${v.join("、")}`);
+			out.push("");
+		}
+
+		const hl = Array.isArray(clip.highlight_words) ? (clip.highlight_words as ClipMeta[]) : [];
+		const hlRows = hl.map((h) => ({ text: str(h?.text), at: num(h?.begin_time) })).filter((h) => h.text);
+		if (hlRows.length) {
+			out.push("### 高光词（源片时码）", "");
+			for (const h of hlRows) out.push(`- ${h.at != null ? `${fmtTime(h.at)} ` : ""}「${h.text}」`);
+			out.push("");
+		}
+	}
+
+	return `${out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}

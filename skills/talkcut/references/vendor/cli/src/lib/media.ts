@@ -1,0 +1,534 @@
+/**
+ * 本地媒体预处理（供 oralcut「只传小文件」）：探原片几何、抽 16k 单声道 mp3、压 720p 代理。
+ * 抽出物按原片指纹（size:mtime）命名缓存到 ~/.gitruck/audio-cache/，同一毛片重剪免重抽。
+ * 全部委托 ffmpeg/ffprobe（绝对路径，见 ffmpeg.ts），不碰用户环境。
+ */
+import { mkdir, stat, rename, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync, readSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, extname, join } from "node:path";
+import { audioCacheDir, fontsDir } from "./paths";
+import { ffprobeJson, requireFfmpeg, runFfmpeg } from "./ffmpeg";
+import { hasLocalFonts } from "./runtime-assets";
+
+export interface Geometry {
+	width: number;
+	height: number;
+	/** 帧率（r_frame_rate 求值），如 30 / 29.97。解析不到为 0——调用方按 T6「缺失即错」处置，MUST NOT 兜底 25/30。 */
+	fps: number;
+	/** 时长（秒）。 */
+	duration: number;
+	/** 视频编码名（`h264`/`hevc`/`av1`…）。硬解静态门入参，探不到为 undefined。 */
+	codecName?: string;
+	/** 像素格式（`yuv420p`/`yuv422p10le`…）。硬解静态门入参——4:2:2/4:4:4 消费级卡无硬解。 */
+	pixFmt?: string;
+	/** 平均帧率（`avg_frame_rate` 求值；add-frame-rate-table-vfr-detect）。容器无该项 / 解析不到为 undefined。 */
+	avgFps?: number;
+	/** 是否 VFR（`|avg − r| / r > VFR_MISMATCH_RATIO`）三态：`true / false / null`——`avg` 缺席（或 `r` 为 0）时 `null` 不判。
+	 *  fake probe 夹具不给 `avgFps` ⇒ `vfr` 缺省 undefined，语义同 `null`（零告警）。 */
+	vfr?: boolean | null;
+}
+
+/**
+ * VFR 判据（add-frame-rate-table-vfr-detect D2）：`|avg_frame_rate − r_frame_rate| / r_frame_rate` 超过此值即判 VFR。
+ * **一个常量两处用**：源片侧 `probeGeometry`（本文件）与成片侧 `qc.ts` 的 `vfr` 项 MUST import 同一份，MUST NOT 内联第二份阈值。
+ */
+export const VFR_MISMATCH_RATIO = 0.01;
+
+function parseFps(rate: unknown): number {
+	if (typeof rate !== "string") return 0;
+	const [n, d] = rate.split("/").map(Number);
+	if (!n || !d) return Number(rate) || 0;
+	return n / d;
+}
+
+/** ffprobe `-show_entries stream=… format=…` 的 JSON 形态（导出供解析器单测造假输出）。 */
+export interface ProbeInfo {
+	streams?: Array<Record<string, unknown>>;
+	format?: Record<string, unknown>;
+}
+
+/**
+ * ffprobe JSON → `Geometry`（纯函数，零进程；`probeGeometry` 与单测共用）。
+ * `avg_frame_rate` 缺席 / 解析为 0 ⇒ `avgFps` undefined、`vfr = null`；`r_frame_rate` 为 0 同样不判 VFR（fps 缺失由调用方报错）。
+ */
+export function geometryFromProbe(info: ProbeInfo): Geometry {
+	const s = (info.streams && info.streams[0]) || {};
+	const duration = Number(info.format?.duration) || 0;
+	const fps = parseFps(s.r_frame_rate);
+	const avg = parseFps(s.avg_frame_rate);
+	const avgFps = avg > 0 ? avg : undefined;
+	const vfr = avgFps !== undefined && fps > 0 ? Math.abs(avgFps - fps) / fps > VFR_MISMATCH_RATIO : null;
+	return {
+		width: Number(s.width) || 0,
+		height: Number(s.height) || 0,
+		fps,
+		duration,
+		codecName: typeof s.codec_name === "string" ? s.codec_name : undefined,
+		pixFmt: typeof s.pix_fmt === "string" ? s.pix_fmt : undefined,
+		avgFps,
+		vfr,
+	};
+}
+
+/** 探原片真实几何 {width,height,fps,duration,…}（客户端本地探得，随请求回传给云端做工程画布与计费校验）。 */
+export function probeGeometry(inputAbs: string, ffmpegPath?: string): Geometry {
+	const { ffprobe } = requireFfmpeg(ffmpegPath);
+	const info = ffprobeJson(ffprobe, [
+		"-v", "error",
+		"-select_streams", "v:0",
+		// codec_name/pix_fmt 是 speedup-matrix-index-proxy-decode 的硬解静态门入参、
+		// avg_frame_rate 是 add-frame-rate-table-vfr-detect 的 VFR 判据入参：
+		// 都挂在这次 ffprobe 上 ⇒ 零额外进程（另起一次 ffprobe 在 NAS 素材上要几百毫秒）
+		"-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,codec_name,pix_fmt",
+		"-show_entries", "format=duration",
+		"-of", "json",
+		inputAbs,
+	]) as ProbeInfo;
+	return geometryFromProbe(info);
+}
+
+// ---------------------------------------------------------------- 源片帧率门与 VFR 可见（add-frame-rate-table-vfr-detect D4/D5）
+
+/**
+ * 上传前帧率硬门（D5）：`parseFps` 得 0 / NaN ⇒ 抛「源文件帧率不可解析」。
+ * MUST 排在抽取与上传之前（零抽取、零上传、零产物目录）；MUST NOT 以 25 / 30 兜底。
+ */
+export function assertSourceFrameRate(geo: Pick<Geometry, "fps">): void {
+	if (!(Number.isFinite(geo.fps) && geo.fps > 0)) {
+		throw new Error(
+			`源文件帧率不可解析（ffprobe r_frame_rate 求值得 ${String(geo.fps)}），已在上传前拦下（零抽取、零上传、零产物）。` +
+				"不以 25 / 30 兜底：帧率是工程时间基，猜错会让整条时间线错格。请先用 ffmpeg 重封装（-c copy）或重编码后再试",
+		);
+	}
+}
+
+/**
+ * VFR 告警文案（D4）：`geo.vfr === true` 时给一行含 `r / avg` 两值的人话，否则 `null`。
+ * 只告警不阻断：几何仍回传真实 `r_frame_rate`（契约「回传原片真实几何」），决策层吸附网格不因 VFR 改变。
+ */
+export function vfrNotice(geo: Pick<Geometry, "fps" | "avgFps" | "vfr">): string | null {
+	if (geo.vfr !== true) return null;
+	const r = geo.fps.toFixed(3);
+	const avg = geo.avgFps !== undefined ? geo.avgFps.toFixed(3) : "?";
+	return (
+		`源文件疑似可变帧率（VFR）：名义帧率 r_frame_rate = ${r}fps、平均帧率 avg_frame_rate = ${avg}fps（差 > ${VFR_MISMATCH_RATIO * 100}%）。` +
+		"几何按名义帧率原样回传、任务照常进行；但 VFR 源在客户端 / 渲染器上的帧对齐可能逐段漂移，" +
+		"稳妥做法是先用 ffmpeg 转成固定帧率（-vsync cfr -r <名义帧率>）再剪"
+	);
+}
+
+/** `--json source` 块（D4）：源片帧率账面，`vfr` 三态原样透出（`null` = 容器无 avg_frame_rate、未判）。 */
+export interface SourceRateInfo {
+	path: string;
+	fps: number;
+	avg_fps: number | null;
+	vfr: boolean | null;
+}
+
+export function sourceRateInfo(inputAbs: string, geo: Pick<Geometry, "fps" | "avgFps" | "vfr">): SourceRateInfo {
+	return { path: inputAbs, fps: geo.fps, avg_fps: geo.avgFps ?? null, vfr: geo.vfr ?? null };
+}
+
+/** 探任意媒体文件时长（秒），用于抽出物一致性自检。 */
+/**
+ * 探音频声道布局（`stereo` / `mono` / …），拿不到返回 undefined。
+ *
+ * 用途：写音频 material 的 `audio_channel` 字段——客户端 `materialMediaKind` 的音频判据是
+ * 「无 video_size ∧ 有 audio_channel」的合取，漏写该字段会让音频素材在素材库里显示成视频
+ * （2026-08-22 真机实锤：BGM mp3 显示为「视频 4:59」）。后端 `video_project_struct` 写出的
+ * 音频 material 一直带此字段，CLI 自产音轨与它对齐。
+ */
+export function probeAudioChannel(path: string, ffmpegPath?: string): string | undefined {
+	// 探不到就返回 undefined（调用方不写该键）：它只服务素材库的图标/类型呈现，
+	// **MUST NOT 因为探测失败而阻断音频上轨**——时长探测已经在上游把「这是不是有效音频」判过了。
+	let info: { streams?: Array<Record<string, unknown>> };
+	try {
+		const { ffprobe } = requireFfmpeg(ffmpegPath);
+		info = ffprobeJson(ffprobe, [
+			"-v", "error", "-select_streams", "a:0",
+			"-show_entries", "stream=channel_layout,channels", "-of", "json", path,
+		]) as { streams?: Array<Record<string, unknown>> };
+	} catch {
+		return undefined;
+	}
+	const st = info.streams?.[0];
+	if (!st) return undefined;
+	const layout = typeof st.channel_layout === "string" ? st.channel_layout.trim() : "";
+	if (layout) return layout;
+	const n = Number(st.channels);
+	if (n === 1) return "mono";
+	if (n === 2) return "stereo";
+	return n > 0 ? String(n) : undefined;
+}
+export function probeDuration(path: string, ffmpegPath?: string): number {
+	const { ffprobe } = requireFfmpeg(ffmpegPath);
+	const info = ffprobeJson(ffprobe, [
+		"-v", "error", "-show_entries", "format=duration", "-of", "json", path,
+	]) as { format?: Record<string, unknown> };
+	return Number(info.format?.duration) || 0;
+}
+
+/** 抽出物按原片指纹缓存的目标路径。 */
+async function artifactPath(inputAbs: string, ext: string): Promise<string> {
+	const s = await stat(inputAbs);
+	const base = basename(inputAbs, extname(inputAbs));
+	await mkdir(audioCacheDir(), { recursive: true });
+	return join(audioCacheDir(), `${base}.${s.size}_${Math.round(s.mtimeMs)}.${ext}`);
+}
+
+/** 本地抽 16k 单声道 mp3（云端转写目标格式，ASR.core 直通、体积最小）。命中缓存则复用。 */
+export async function extractAudio(inputAbs: string, ffmpegPath?: string): Promise<string> {
+	const { ffmpeg } = requireFfmpeg(ffmpegPath);
+	const out = await artifactPath(inputAbs, "mp3");
+	if (existsSync(out)) return out;
+	await runFfmpeg(ffmpeg, [
+		"-y", "-v", "error", "-i", inputAbs,
+		"-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "64k",
+		out,
+	]);
+	return out;
+}
+
+/** 本地压 720p 代理视频（visual_assist 时上传物；视觉说话检测在 720p 上做足够）。命中缓存则复用。 */
+export async function compress720p(inputAbs: string, ffmpegPath?: string): Promise<string> {
+	const { ffmpeg } = requireFfmpeg(ffmpegPath);
+	const out = await artifactPath(inputAbs, "720p.mp4");
+	if (existsSync(out)) return out;
+	await runFfmpeg(ffmpeg, [
+		"-y", "-v", "error", "-i", inputAbs,
+		"-vf", "scale=-2:720", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+		"-c:a", "aac", "-movflags", "+faststart",
+		out,
+	]);
+	return out;
+}
+
+/** 角色 Cut 专用分析代理：720p/12fps，保留音频与首条内嵌字幕流，输出 MKV。 */
+export async function compressCharacterAnalysisProxy(inputAbs: string, ffmpegPath?: string, destination?: string): Promise<string> {
+	const { ffmpeg } = requireFfmpeg(ffmpegPath);
+	const out = destination ?? await artifactPath(inputAbs, "character-v2-720p.mkv");
+	if (existsSync(out)) return out;
+	const tmp = `${out}.${randomUUID()}.mkv`;
+	try {
+		await runFfmpeg(ffmpeg, [
+			"-y", "-v", "error", "-copyts", "-start_at_zero", "-i", inputAbs,
+			"-map", "0:v:0", "-map", "0:a:0?", "-map", "0:s:0?",
+			"-vf", "scale=w=-2:h='min(720,ih)':flags=lanczos,fps=12:start_time=0",
+			"-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+			"-c:a", "aac", "-b:a", "64k", "-ac", "1", "-ar", "16000",
+			"-c:s", "copy", "-max_interleave_delta", "0",
+			tmp,
+		]);
+		await rename(tmp, out);
+	} finally { await rm(tmp, { force: true }); }
+	return out;
+}
+
+/**
+ * 抽出物时长与原片一致性自检（容差默认 1s）；不一致抛错（防残缺上传少计费/异常）。
+ *
+ * 时钟对声明（add-cross-clock-adapter D7，T5 点名的具名适配器之一）：`source_container → asr_extract`——
+ * 比的是**派生上传物**（16k mp3 / 720p 代理）与原片容器这一对；1.0s 是「抽取有没有残缺 / 服务端计费口径对不对」的
+ * 计费护栏，**不是时基容差**（T4 的时基容差只有 1ms / 1 帧，归 `clock-adapter.ts` / `gtrk-invariants.ts`）。
+ * MUST NOT 拿这个 1.0s 去放宽任何 `clip_ed` 上界或时码比对。
+ */
+export function assertDurationConsistent(
+	originalDuration: number,
+	artifactAbs: string,
+	ffmpegPath?: string,
+	tolSec = 1.0,
+): void {
+	const got = probeDuration(artifactAbs, ffmpegPath);
+	if (originalDuration > 0 && Math.abs(got - originalDuration) > tolSec) {
+		throw new Error(
+			`抽出物时长（${got.toFixed(2)}s）与原片（${originalDuration.toFixed(2)}s）不一致（容差 ${tolSec}s），` +
+				`疑似抽取异常，已中止上传`,
+		);
+	}
+}
+
+// ---------------------------------------------------------------- 上传前时长硬闸（add-pre-upload-duration-gate）
+
+/**
+ * 服务端媒体探测层的**全局**时长硬上限（秒）——所有按时长计费的任务类型（`modal_type` 为
+ * audio/video 者）在**建单前**都吃这一条，超限直接 `6019 媒体时长无效或超过业务限制`。
+ *
+ * ⚠️ **这是服务端常量的镜像，真相源不在本仓**：
+ *   gitruck-infra `biz/gitruck_cloud/public/services/media_probe_services.py:29`
+ *   `MAX_ALLOWED_DURATION_SECONDS = 60 * 60 * 2`（判定在同文件 `:300`，严格大于才拒）。
+ * 服务端改值 ⇒ **MUST 同步改这里**。镜像的先例与理由见 change `add-pre-upload-duration-gate`
+ * 的 proposal「口径判定」节：`catalog` 明写不收「数值域参数约束」，而本仓 `tool-descriptors.ts`
+ * 的 `maxDurationSec`（`video_matting` 600 / `video_upscale` 60）早已是同形态镜像。
+ * P3 留痕：日后 catalog 若推翻其 P4 拍板、收编数值域参数约束，本常量 MUST 改为从 catalog 取。
+ */
+export const MAX_MEDIA_DURATION_SEC = 60 * 60 * 2;
+
+/** 超限报错的逐命令尾句（前面四要素共用，只有「分段之后干什么」不同）。 */
+export interface DurationLimitHint {
+	/** 分段后要跑的命令名，用于示例与动作句，如 `long2short`。 */
+	command: string;
+	/** 分段跑完之后的一句话，如「各段产出的 clip 可事后汇总成一张选题清单」。 */
+	afterward: string;
+}
+
+/**
+ * 上传前时长硬闸：源片时长**严格大于**服务端上限时抛人话错误。
+ *
+ * 判据 MUST 与服务端逐字同构（`>`，不是 `>=`）——用「大于等于」会拒掉服务端本会接收的边界片，
+ * 那是比白传更坏的失败（用户没有逃生口）。
+ *
+ * 边界带如实告知（change P2 拍板：接受该残留、MUST NOT 加余量）：本闸判的是**源片**时长，
+ * 服务端判的是**上传物**（16k mp3 / 720p 代理）时长，二者由 `assertDurationConsistent`
+ * 绑定在 < 1s 容差内 ⇒ 存在一条 < 1s 宽的边界带，带内可能本闸放行而服务端仍拒——
+ * 那只是退化回未加闸前的行为，不更差。本闸是**加法不是替代**，服务端恒为最终真相源。
+ */
+export function assertWithinMediaDurationLimit(durationSec: number, hint: DurationLimitHint): void {
+	if (!(durationSec > MAX_MEDIA_DURATION_SEC)) return;
+	const mins = (durationSec / 60).toFixed(1);
+	const hours = (durationSec / 3600).toFixed(2);
+	const limitHours = MAX_MEDIA_DURATION_SEC / 3600;
+	throw new Error(
+		`源片时长 ${mins}min（${hours}h）超过服务端 ${limitHours} 小时上限，已在上传前拦下` +
+			`（零抽取、零上传、零提交、零扣费）。\n` +
+			`出路：先把源片分段，再逐段跑 ${hint.command}。建议每段 ≤ 40 分钟` +
+			`（依据：轮询墙钟 60min ÷ 开分屏实测耗时比上界 1.25× ≈ 48min，取 40 留余量）。\n` +
+			`切段示例（流拷贝、不重编码、秒级完成）：\n` +
+			`  ffmpeg -ss 0 -t 2400 -i "<源片>" -c copy "<源片名>_seg01.mp4"\n` +
+			`  ffmpeg -ss 2400 -t 2400 -i "<源片>" -c copy "<源片名>_seg02.mp4"  # 依次类推\n` +
+			`${hint.afterward}`,
+	);
+}
+
+// ---------------------------------------------------------------- 本地字幕烧录（align-ai-subtitle-audio-only）
+
+/** 从 .ass 的 `Style:` 行取出所声明的字体名集合（第 2 个字段）。 */
+export function assFontNames(assText: string): string[] {
+	const names = new Set<string>();
+	for (const line of assText.split(/\r?\n/)) {
+		if (!line.startsWith("Style:")) continue;
+		const font = line.slice("Style:".length).split(",")[1]?.trim();
+		if (font) names.add(font);
+	}
+	return [...names];
+}
+
+/**
+ * 本机是否装了指定字体。走 ffmpeg 的 fontconfig 视角以外的路径不可靠，故直接查系统字体目录的
+ * 名称表代价高——这里用 ffmpeg 自带的 `-f lavfi drawtext` 探测：字体不可解析时 ffmpeg 会报错。
+ * 返回 true=可用。探测失败（ffmpeg 无 drawtext 等）一律返回 null 表示「测不出来」，由调用方决定。
+ */
+export async function probeFontAvailable(font: string, ffmpegPath?: string): Promise<boolean | null> {
+	const { ffmpeg } = requireFfmpeg(ffmpegPath);
+	try {
+		await runFfmpeg(ffmpeg, [
+			"-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04",
+			"-vf", `drawtext=font='${font}':text=A`, "-frames:v", "1", "-f", "null", "-",
+		]);
+		return true;
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		// 字体缺失时 fontconfig 报 "Cannot find a valid font for the family ..."；
+		// 其余错误（滤镜不可用等）说明探测本身失效，回 null 而不是误判成缺字体。
+		if (/valid font|font.*not found|Fontconfig error/i.test(msg)) return false;
+		return null;
+	}
+}
+
+/** ass 滤镜的路径参数要转义 Windows 盘符冒号与反斜杠，否则被当成滤镜参数分隔符。 */
+function assFilterPath(p: string): string {
+	return p.replace(/\\/g, "/").replace(/:/g, "\\:");
+}
+
+// ---- 本地字体家族名解析（零依赖读 sfnt `name` 表）----
+// libass 按**家族名**匹配（.ass 的 Style 行写的是家族名，不是文件名），故不能按文件名判断有无。
+// 只读 nameID 1（家族）/ 4（全名）/ 16（排版家族），覆盖各平台各语言记录——
+// 思源黑体的简中家族名「思源黑体 CN Bold」正是记在 platformID=3 / langID=0x804 上。
+
+/** 解 sfnt `name` 表（入参就是该表本身，偏移相对表首）。 */
+function nameTableNames(buf: Buffer): string[] {
+	const out: string[] = [];
+	if (buf.length < 6) return out;
+	const count = buf.readUInt16BE(2);
+	const strBase = buf.readUInt16BE(4);
+	for (let i = 0; i < count; i++) {
+		const r = 6 + i * 12;
+		if (r + 12 > buf.length) break;
+		const platformID = buf.readUInt16BE(r);
+		const nameID = buf.readUInt16BE(r + 6);
+		if (nameID !== 1 && nameID !== 4 && nameID !== 16) continue;
+		const len = buf.readUInt16BE(r + 8);
+		const off = strBase + buf.readUInt16BE(r + 10);
+		if (off + len > buf.length) continue;
+		const slice = buf.subarray(off, off + len);
+		let s: string;
+		if (platformID === 1) {
+			s = slice.toString("latin1"); // Mac 平台记录多为单字节
+		} else {
+			// platformID 3（Windows）/ 0（Unicode）是 UTF-16**BE**，Node 只有 utf16le，
+			// 故先复制再字节交换（swap16 会原地改，且要求长度为偶数）
+			const even = slice.length % 2 === 0 ? slice : slice.subarray(0, slice.length - 1);
+			s = Buffer.from(even).swap16().toString("utf16le");
+		}
+		const v = s.replace(/\0/g, "").trim();
+		if (v) out.push(v);
+	}
+	return out;
+}
+
+/**
+ * 读单个字体文件里声明的家族名（含 .ttc 集合内各子字体）。解析失败回空数组，不抛。
+ *
+ * **只部分读取**：字体动辄 8 MB，而要扫的系统字体目录有几百个文件——整读会读进数 GB。
+ * 故只读「头部 + 表目录」定位 name 表，再单读 name 表那一段。
+ */
+export function fontFileFamilies(path: string): string[] {
+	let fd: number | null = null;
+	try {
+		fd = openSync(path, "r");
+		const head = Buffer.alloc(12);
+		if (readSync(fd, head, 0, 12, 0) < 12) return [];
+
+		const bases: number[] = [];
+		if (head.toString("latin1", 0, 4) === "ttcf") {
+			const n = head.readUInt32BE(8);
+			const dir = Buffer.alloc(Math.min(n, 64) * 4);
+			readSync(fd, dir, 0, dir.length, 12);
+			for (let i = 0; i < dir.length / 4; i++) bases.push(dir.readUInt32BE(i * 4));
+		} else {
+			bases.push(0);
+		}
+
+		const out: string[] = [];
+		for (const base of bases) {
+			const h = base === 0 ? head : Buffer.alloc(12);
+			if (base !== 0 && readSync(fd, h, 0, 12, base) < 12) continue;
+			const numTables = h.readUInt16BE(4);
+			if (!numTables || numTables > 512) continue;
+			const dir = Buffer.alloc(numTables * 16);
+			if (readSync(fd, dir, 0, dir.length, base + 12) < dir.length) continue;
+			let nameOff = 0;
+			let nameLen = 0;
+			for (let i = 0; i < numTables; i++) {
+				if (dir.toString("latin1", i * 16, i * 16 + 4) === "name") {
+					nameOff = dir.readUInt32BE(i * 16 + 8);
+					nameLen = dir.readUInt32BE(i * 16 + 12);
+					break;
+				}
+			}
+			if (!nameOff || !nameLen || nameLen > 1 << 20) continue;
+			const nameBuf = Buffer.alloc(nameLen);
+			if (readSync(fd, nameBuf, 0, nameLen, nameOff) < nameLen) continue;
+			out.push(...nameTableNames(nameBuf));
+		}
+		return out;
+	} catch {
+		return [];
+	} finally {
+		if (fd !== null) try { closeSync(fd); } catch { /* 忽略 */ }
+	}
+}
+
+const FONT_EXT = /\.(otf|ttf|ttc|otc)$/i;
+
+/** 扫一个目录（可递归，深度有限）收集字体家族名。目录不存在/无权限静默跳过。 */
+function scanFontDir(dir: string, out: Set<string>, depth = 0): void {
+	if (depth > 3) return;
+	let entries: ReturnType<typeof readdirSync>;
+	try {
+		entries = readdirSync(dir, { withFileTypes: true }) as never;
+	} catch {
+		return;
+	}
+	for (const e of entries as unknown as Array<{ name: string; isDirectory(): boolean }>) {
+		const p = join(dir, e.name);
+		if (e.isDirectory()) scanFontDir(p, out, depth + 1);
+		else if (FONT_EXT.test(e.name)) for (const n of fontFileFamilies(p)) out.add(n);
+	}
+}
+
+let _famCache: string[] | null = null;
+/** ~/.gitruck/fonts 下所有字体声明的家族名（进程内缓存）。 */
+export function localFontFamilies(): string[] {
+	if (_famCache) return _famCache;
+	const out = new Set<string>();
+	scanFontDir(fontsDir(), out);
+	_famCache = [...out];
+	return _famCache;
+}
+
+/** 各平台系统字体目录。 */
+function systemFontDirs(): string[] {
+	const home = homedir();
+	if (process.platform === "win32") {
+		return [
+			join(process.env.SystemRoot || "C:\\Windows", "Fonts"),
+			join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "Microsoft", "Windows", "Fonts"),
+		];
+	}
+	if (process.platform === "darwin") {
+		return ["/System/Library/Fonts", "/Library/Fonts", join(home, "Library", "Fonts")];
+	}
+	return ["/usr/share/fonts", "/usr/local/share/fonts", join(home, ".local/share/fonts"), join(home, ".fonts")];
+}
+
+let _sysCache: string[] | null = null;
+/**
+ * 系统已装字体的家族名（进程内缓存）。
+ *
+ * **为什么不用 ffmpeg 探测**：`drawtext` 走 fontconfig，字体缺失时它**静默替换**并照常退 0
+ * ——实测本机上「绝不存在的字体名」与真实字体同样退 0，探不出缺失。故改为正面枚举系统字体目录、
+ * 按 name 表比家族名，这才让「两处均缺 ⇒ 报错」这条判据真的可判。
+ */
+export function systemFontFamilies(): string[] {
+	if (_sysCache) return _sysCache;
+	const out = new Set<string>();
+	for (const d of systemFontDirs()) scanFontDir(d, out);
+	_sysCache = [...out];
+	return _sysCache;
+}
+
+/**
+ * 本地把 .ass 烧进视频（毛片不出本地、烧好的成片也不从云端下行）。
+ * 字幕滤镜按 ffmpeg `ass` 滤镜走（自带样式，不做二次覆写）；音轨直拷不重编码。
+ *
+ * 字体供给：~/.gitruck/fonts 有字体时给 `ass` 滤镜传 `fontsdir`，libass 会与系统字体源合并
+ * ——**不安装进系统字体表、不写注册表、不要管理员权限**（change: add-runtime-asset-mirror）。
+ * 用户系统已装的字体照常可用，两处任一命中即可渲染。
+ */
+export async function burnSubtitle(
+	videoAbs: string,
+	assAbs: string,
+	outAbs: string,
+	opts: { ffmpegPath?: string; crf?: number; codec?: string } = {},
+): Promise<string> {
+	const { ffmpeg } = requireFfmpeg(opts.ffmpegPath);
+	let filter = `ass='${assFilterPath(assAbs)}'`;
+	if (hasLocalFonts()) filter += `:fontsdir='${assFilterPath(fontsDir())}'`;
+	await runFfmpeg(ffmpeg, [
+		"-y", "-v", "error", "-i", videoAbs,
+		"-vf", filter,
+		"-c:v", opts.codec ?? "libx264", "-crf", String(opts.crf ?? 18), "-preset", "medium",
+		"-c:a", "copy", "-movflags", "+faststart",
+		outAbs,
+	]);
+	return outAbs;
+}
+
+/**
+ * 字体是否可用于烧录：`~/.gitruck/fonts`（经 fontsdir）与系统字体目录**任一命中即可**。
+ *
+ * 判据是**按 name 表比家族名**（libass 就是这么匹配的），不是文件名、也不是 fontconfig 探测
+ * ——后者在 Windows 上探不出缺失（见 systemFontFamilies 注释）。
+ * 兜底：两处枚举都空（异常环境，如无权限读字体目录）时不武断判缺，退回 ffmpeg 探测。
+ */
+export async function fontUsableForBurn(font: string, ffmpegPath?: string): Promise<boolean> {
+	const local = localFontFamilies();
+	const sys = systemFontFamilies();
+	if (local.includes(font) || sys.includes(font)) return true;
+	if (local.length === 0 && sys.length === 0) {
+		return (await probeFontAvailable(font, ffmpegPath)) !== false;
+	}
+	return false;
+}

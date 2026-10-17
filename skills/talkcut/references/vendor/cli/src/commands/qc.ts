@@ -1,0 +1,376 @@
+/**
+ * gtrk qc —— 成片质量扫描（add-qc-scan · qc-command spec）。
+ * 单趟解码扫全片：闪帧/段内跳切/黑帧/冻结/爆音/静音/音画规整，产人读报告 + 机读 qc-report v1，
+ * 退出码按 `--fail-on` 门控供管线消费。
+ */
+import { Command } from "commander";
+import { resolve, dirname, join, basename, extname } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
+import { fmtTime, scanFinalCut, shouldFail, type QcItem, type QcReport, type QcSeverity } from "../lib/qc";
+import { openLocalIndexDb, recordConfirmedCuts } from "../lib/local-index";
+import { log, routeLogsToStderr } from "../lib/log";
+import { runAlignmentQc, tryOpenIndexDb } from "../lib/alignment-qc";
+import { resolveDescribeUrl } from "../lib/describe";
+// 计费身份探针（fix-describe-billing-report-honesty）：读 **gc_member_type**，
+// ⚠️ MUST NOT 换成 `probeMemberType`（那是 matrix_member_type = 素材矩阵检索维度，与计费无关；
+//    服务端已明示「矩阵 internal 而计费 external 则不豁免」，两条轴正交）。
+import { probeGcMemberType } from "../lib/matrix";
+import { loadConfig } from "../lib/config";
+import { requireFfmpeg, runFfmpeg } from "../lib/ffmpeg";
+import { sec2ms } from "../lib/frame-domain";
+import { readJson } from "../lib/read-json";
+import { tmpdir } from "node:os";
+import {
+	DEFAULT_CELL_WIDTH,
+	DEFAULT_COLS,
+	escapeDrawText,
+	labelFontSize,
+	labelsFromManifest,
+	paginate,
+	type SheetCell,
+} from "../lib/contact-sheet";
+
+interface QcOpts {
+	gtrk?: string;
+	json?: string;
+	failOn?: string;
+	ffmpegPath?: string;
+	feedbackCuts?: boolean;
+	alignment?: boolean;
+	project?: string;
+	yes?: boolean;
+}
+
+const SEVERITY_LABEL: Record<QcSeverity, string> = { error: "严重", warn: "提示", info: "备注" };
+const TYPE_LABEL: Record<string, string> = {
+	flash: "过短镜头/节奏断裂",
+	intra_cut: "段内跳切",
+	black: "黑帧/黑段",
+	freeze: "冻结画面",
+	clip: "音频削波",
+	measure_unavailable: "检测项未生效",
+	silence: "静音段",
+	av_drift: "音画时长不一致",
+	vfr: "成片非固定帧率",
+};
+
+/** 机读报告缺省落点：`<成片同目录>/<成片名>.qc.json`（固定名会被多成片互踩）。 */
+export function defaultReportPath(input: string): string {
+	return join(dirname(input), `${basename(input, extname(input))}.qc.json`);
+}
+
+/** 人读报告（按严重级分组，每条带时码/时长/证据）。 */
+export function formatReport(report: QcReport): string[] {
+	const lines: string[] = [];
+	const groups: QcSeverity[] = ["error", "warn", "info"];
+	for (const sev of groups) {
+		const items = report.items.filter((i) => i.severity === sev);
+		if (!items.length) continue;
+		lines.push(`【${SEVERITY_LABEL[sev]}】${items.length} 条`);
+		for (const it of items) lines.push(`  ${formatItem(it)}`);
+	}
+	if (!lines.length) lines.push("未检出缺陷");
+	return lines;
+}
+
+function formatItem(it: QcItem): string {
+	const span = it.ed > it.st ? `${fmtTime(it.st)} – ${fmtTime(it.ed)}（${(it.ed - it.st).toFixed(3)}s）` : fmtTime(it.st);
+	const ev = Object.entries(it.evidence)
+		.filter(([k]) => k !== "note")
+		.map(([k, v]) => `${k}=${typeof v === "number" ? v : JSON.stringify(v)}`)
+		.join(" ");
+	const note = typeof it.evidence.note === "string" ? `　${it.evidence.note}` : "";
+	return `${TYPE_LABEL[it.type] ?? it.type}　${span}${ev ? `　${ev}` : ""}${note}`;
+}
+
+export function registerQc(program: Command): void {
+	program
+		// 形态铁律（沿 tool 族 D1 / patch 同一条）：**顶层命令 + 首个 positional 词内部分派**。
+		// 第二个 positional 是**新增的可选项**：不给时 commander 行为与本件上线前逐字一致。
+		.command("qc [成片] [子命令输入]")
+		.description("成片质量扫描：闪帧/段内跳切/黑帧/冻结/爆音/静音/音画规整，产报告与时码定位；`qc contact-sheet <目录|清单>` 拼带标签的联络表")
+		.option("--gtrk <path>", "工程感知模式：对表 clip 拼接边界，识别段内跳切、已知黑底空洞降级")
+		.option("--json <path>", "机读报告落点（缺省 = <成片同目录>/<成片名>.qc.json）")
+		.option("--fail-on <level>", "退出码门控：error（默认）| warn | never", "error")
+		.option(
+			"--feedback-cuts",
+			"把段内跳切映射回源时码并补录进本地索引（标 qc_confirmed，治检测阈值漏网）——须配 --gtrk；不带本开关时常规扫描零写库",
+		)
+		.option("--ffmpeg-path <dir>", "指定 ffmpeg/ffprobe 所在目录（缺省 ~/.gitruck/ffmpeg → 系统）")
+		.option(
+			"--alignment",
+			"对齐质检：逐叙述句判定已铺画面是否给到稿句所说（须配 --project；引用段按结构校验跳过；计费=1 积分/句帧，异步任务计费；同合云内部成员豁免，跑时自动探测）",
+		)
+		.option("--project <dir>", "[alignment] 工程产物目录（定位 gtrk/transcript/split 三件）")
+		.option("--yes", "[alignment] 跳过计费确认")
+		.option("--cols <n>", `[contact-sheet] 列数（缺省 ${DEFAULT_COLS}）`)
+		.option("--cell-width <px>", `[contact-sheet] 单格宽（缺省 ${DEFAULT_CELL_WIDTH}）`)
+		.option("--label-from <manifest>", "[contact-sheet] 标签取自该清单（缺省找输入目录里的 manifest.json）")
+		.option("-o, --out <png>", "[contact-sheet] 产物落点（多页时自动加 -p<N>）")
+		.action(async (input: string | undefined, sub: string | undefined, opts: QcOpts & ContactSheetOpts) => {
+			// contact-sheet 走完全独立的路径，**不碰**下面成片扫描的任何分支与退出码门控
+			if (input === "contact-sheet") {
+				if (!sub) throw new Error("用法：gtrk qc contact-sheet <目录或 manifest.json> [--cols 6] [-o out.png]");
+				await runContactSheet(sub, opts);
+				return;
+			}
+			if (opts.alignment) {
+				await runAlignmentMode(input, opts);
+				return;
+			}
+			if (!input) throw new Error("缺少成片路径（常规质检模式必填；对齐质检走 --alignment --project）");
+			const failOn = opts.failOn === "warn" || opts.failOn === "never" ? opts.failOn : "error";
+			const inputAbs = resolve(input);
+			if (!existsSync(inputAbs)) throw new Error(`成片不存在：${inputAbs}`);
+
+			let gtrk: unknown;
+			if (opts.gtrk) {
+				const gtrkAbs = resolve(opts.gtrk);
+				if (!existsSync(gtrkAbs)) throw new Error(`gtrk 工程不存在：${gtrkAbs}`);
+				gtrk = await readJson(gtrkAbs, ".gtrk 工程");
+			}
+
+			log.step(`▶ 成片质检：${basename(inputAbs)}${gtrk ? "（工程感知）" : ""}`);
+			const report = await scanFinalCut(inputAbs, {
+				gtrk,
+				ffmpegPath: opts.ffmpegPath,
+				onProgress: (l) => log.info(l),
+			});
+
+			for (const line of formatReport(report)) log.info(line);
+
+			// 确认切点回流（显式动作；常规扫描零写库——QC 是只读诊断工具，静默改索引会让
+			// 「重扫一次结果就变了」）。按 clip_id → 材料 id（消费方既有拼接 broll-+clip_id）分组补录。
+			if (opts.feedbackCuts) {
+				if (!gtrk) throw new Error("--feedback-cuts 须配 --gtrk（无工程坐标无从映射回源时码）");
+				const byMaterial = new Map<string, number[]>();
+				let skipped = 0;
+				for (const it of report.items) {
+					if (it.type !== "intra_cut") continue;
+					const clipId = it.evidence.clip_id;
+					const src = it.evidence.source_time;
+					if (typeof clipId !== "string" || typeof src !== "number") {
+						skipped++;
+						continue;
+					}
+					const materialId = clipId.startsWith("broll-") ? clipId : `broll-${clipId}`;
+					const list = byMaterial.get(materialId) ?? [];
+					list.push(sec2ms(src));
+					byMaterial.set(materialId, list);
+				}
+				const db = await openLocalIndexDb();
+				try {
+					let added = 0;
+					for (const [materialId, tsMs] of byMaterial) added += recordConfirmedCuts(db, materialId, tsMs);
+					log.ok(`确认切点已回流索引：新增 ${added} 条（跳过 ${skipped} 条无法唯一映射）`);
+				} finally {
+					db.close();
+				}
+			}
+
+			const reportPath = resolve(opts.json ?? defaultReportPath(inputAbs));
+			await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+			log.ok(
+				`质检完成：严重 ${report.summary.error} · 提示 ${report.summary.warn} · 备注 ${report.summary.info} → ${reportPath}`,
+			);
+
+			if (shouldFail(report, failOn)) process.exitCode = 1;
+		});
+}
+
+/** [add-shot-cards-and-alignment-qc 1.4] 对齐质检模式（CLI 专属，勿入对外文档）。
+ * positional 在本模式下兼作工程目录兜底（`gtrk qc --alignment <工程>` 与 `--project` 等价）。 */
+async function runAlignmentMode(input: string | undefined, opts: QcOpts): Promise<void> {
+	const target = opts.project ?? input;
+	if (!target) throw new Error("对齐质检缺工程目录：--project <dir>（或 positional 兜底）");
+	const projectDir = resolve(target);
+	if (!existsSync(projectDir)) throw new Error(`工程目录不存在：${projectDir}`);
+	const cfg = loadConfig();
+	const endpoint = { url: resolveDescribeUrl(cfg.base), apiKey: cfg.apiKey };
+	const ffmpeg = requireFfmpeg(opts.ffmpegPath).ffmpeg;
+	log.step(`▶ 对齐质检：${projectDir}`);
+	const db = await tryOpenIndexDb();
+	try {
+		const report = await runAlignmentQc(projectDir, {
+			endpoint,
+			ffmpeg,
+			yes: opts.yes === true,
+			// 计费身份探针注入（fix-describe-billing-report-honesty）：与 `matrix describe` 同一条判据。
+			// 抛错不吞在这里——编排层已按非豁免继续并如实标注 probe:"failed"，
+			// 在这吞成 false 会把「探不到」洗成「确定不豁免」。
+			probeExempt: async () => (await probeGcMemberType(cfg)) === "internal",
+			confirm: async (q) => {
+				const rl = createInterface({ input: process.stdin, output: process.stderr });
+				try {
+					const a = (await rl.question(`${q} [y/N] `)).trim().toLowerCase();
+					return a === "y" || a === "yes";
+				} finally {
+					rl.close();
+				}
+			},
+			onLog: (m) => log.info(m),
+			db,
+		});
+		const s = report.summary;
+		if (report.degraded) {
+			log.warn(
+				`对齐质检（降级形态）：${s.audited} 句已产帧描述，逐句裁定交 agent 文本判读 → qc/alignment-audit.{json,md}`,
+			);
+		} else {
+			// 验收判据=卡点句零 mismatch（七三开：跟随句蹭领衔镜头，其错配属设计非缺陷；
+			// 全句 rate 冲 100 反而意味着 100% 逐句硬切、节奏碎成 PPT）
+			log.ok(
+				`卡点句对齐 ${s.lead_rate}%（mismatch ${s.lead_mismatch}/${s.lead_total}）← 验收判据 | 全句 ${s.rate}%：match ${s.match} · partial ${s.partial} · mismatch ${s.mismatch}（n=${s.audited}，引用段等跳过 ${s.skipped}）→ qc/alignment-audit.{json,md}`,
+			);
+			for (const it of report.items) {
+				if (it.verdict !== "mismatch") continue;
+				const tag = it.role === "follow" ? "跟随句（七三开设计内）" : "★卡点句";
+				const line = `  ${tag} ${it.id} @${fmtTime(it.track_mid)}：${it.sentence.slice(0, 22)}… — ${it.reason ?? ""}`;
+				if (it.role === "follow") log.info(line);
+				else log.warn(line);
+			}
+		}
+	} finally {
+		db?.close();
+	}
+}
+
+/** 渲染尾随质检（add-qc-scan · local-ffmpeg-render delta）：同进程复用，异常降级不阻断出片。 */
+export async function runPostRenderQc(
+	outputPath: string,
+	gtrk: unknown,
+	opts: { ffmpegPath?: string } = {},
+): Promise<QcReport | null> {
+	try {
+		const report = await scanFinalCut(outputPath, { gtrk, ffmpegPath: opts.ffmpegPath });
+		const reportPath = defaultReportPath(outputPath);
+		await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+		const { error, warn, info } = report.summary;
+		if (error + warn + info === 0) {
+			log.ok(`质检通过：未检出缺陷 → ${reportPath}`);
+		} else {
+			log.info(`质检：严重 ${error} · 提示 ${warn} · 备注 ${info} → ${reportPath}`);
+			for (const it of report.items.filter((i) => i.severity === "error")) log.info(`  ${formatItem(it)}`);
+		}
+		return report;
+	} catch (e) {
+		// 渲染成功即成功：质检自身故障只告警（spec「QC 故障不阻断出片」）
+		log.warn(`渲染后质检未完成（${e instanceof Error ? e.message : String(e)}）——成片已出，可稍后手动跑 gtrk qc`);
+		return null;
+	}
+}
+
+// ───────────────────── 联络表（add-qc-contact-sheet）─────────────────────
+
+export interface ContactSheetOpts {
+	cols?: string | number;
+	cellWidth?: string | number;
+	labelFrom?: string;
+	out?: string;
+	ffmpegPath?: string;
+	json?: boolean;
+}
+
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp"]);
+
+/**
+ * 列格。两条来源，**都不猜**：
+ *  · `--label-from <manifest>`：标签与文件**同一条记录**里取，顺序按 shotIndex
+ *  · 目录：按文件名自然序，标签 = 去扩展名的文件名
+ *
+ * ⚠️ MUST NOT 混用（一边扫盘取文件、一边从 manifest 取标签再按各自的序配对）——
+ * 那正是错位的来源，而错位的联络表比没有联络表更有害。
+ */
+async function collectCells(input: string, opts: ContactSheetOpts): Promise<{ baseDir: string; cells: SheetCell[] }> {
+	const abs = resolve(input);
+	if (!existsSync(abs)) throw new Error(`联络表输入不存在：${abs}`);
+	const isManifest = statSync(abs).isFile();
+	const manifestPath = opts.labelFrom ? resolve(opts.labelFrom) : isManifest ? abs : join(abs, "manifest.json");
+
+	if (existsSync(manifestPath) && statSync(manifestPath).isFile()) {
+		const m = (await readJson(manifestPath, "联络表清单")) as { beatId?: unknown; items?: unknown };
+		const cells = labelsFromManifest(m);
+		if (!cells?.length) throw new Error(`${manifestPath}：读不出可用的 items（需要 beatId 与 items[].file）`);
+		const baseDir = isManifest ? dirname(abs) : abs;
+		for (const c of cells) {
+			c.file = resolve(baseDir, c.file);
+			if (!existsSync(c.file)) throw new Error(`清单里的图不在盘上：${c.file}`);
+		}
+		return { baseDir, cells };
+	}
+
+	if (isManifest) throw new Error(`${abs} 不是目录，也不是可读的清单`);
+	const files = readdirSync(abs)
+		.filter((f) => IMAGE_EXT.has(extname(f).toLowerCase()))
+		.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+	if (!files.length) throw new Error(`${abs} 里没有图片（认 ${[...IMAGE_EXT].join(" / ")}）`);
+	return { baseDir: abs, cells: files.map((f) => ({ file: join(abs, f), label: basename(f, extname(f)) })) };
+}
+
+export async function runContactSheet(input: string, opts: ContactSheetOpts = {}): Promise<Record<string, unknown>> {
+	if (opts.json) routeLogsToStderr();
+	const { ffmpeg } = requireFfmpeg(opts.ffmpegPath);
+	const { baseDir, cells } = await collectCells(input, opts);
+	const cols = opts.cols === undefined ? DEFAULT_COLS : Math.max(1, Math.floor(Number(opts.cols)));
+	const cellW = opts.cellWidth === undefined ? DEFAULT_CELL_WIDTH : Math.max(64, Math.floor(Number(opts.cellWidth)));
+	const pages = paginate(cells, cols);
+
+	const outDir = opts.out ? dirname(resolve(opts.out)) : baseDir;
+	const stem = opts.out ? basename(resolve(opts.out)).replace(/\.png$/i, "") : "contact-sheet";
+	mkdirSync(outDir, { recursive: true });
+
+	const fontSize = labelFontSize(cellW);
+	const written: Array<{ page: number; path: string; cells: number }> = [];
+	log.step(`▶ 联络表：${cells.length} 格 / ${cols} 列 → ${pages.length} 页`);
+
+	for (const page of pages) {
+		// 先把每格渲成等尺寸的带标签 PNG，再用 tile 拼。
+		// 为什么不一条 filter_complex 干完：232 个输入的 xstack 命令行会超长，
+		// 且任何一步的输入序都可能与标签序脱钩。分两步后，**格的顺序由文件名里的序号构造性决定**。
+		const work = mkdtempSync(join(tmpdir(), "gtrk-sheet-"));
+		try {
+			for (const [i, cell] of page.cells.entries()) {
+				const label = escapeDrawText(cell.label);
+				await runFfmpeg(ffmpeg, [
+					"-y", "-v", "error", "-i", cell.file,
+					"-vf",
+					`scale=${cellW}:-2,` +
+						// 标签压在左上角的半透明底上：直接画白字在亮画面上会读不出来
+						`drawbox=x=0:y=0:w=iw:h=${fontSize + 8}:color=black@0.55:t=fill,` +
+						`drawtext=text='${label}':x=6:y=4:fontsize=${fontSize}:fontcolor=white`,
+					"-frames:v", "1",
+					join(work, `cell_${String(i).padStart(5, "0")}.png`),
+				]);
+			}
+			const outPath = join(outDir, pages.length > 1 ? `${stem}-p${page.page}.png` : `${stem}.png`);
+			await runFfmpeg(ffmpeg, [
+				"-y", "-v", "error",
+				"-start_number", "0", "-i", join(work, "cell_%05d.png"),
+				"-vf", `tile=${page.cols}x${page.rows}:padding=4:margin=4:color=0x202020`,
+				"-frames:v", "1",
+				outPath,
+			]);
+			written.push({ page: page.page, path: outPath, cells: page.cells.length });
+			log.ok(`第 ${page.page}/${pages.length} 页：${page.cells.length} 格 → ${outPath}`);
+		} finally {
+			rmSync(work, { recursive: true, force: true });
+		}
+	}
+
+	const result = {
+		ok: true,
+		mode: "contact-sheet",
+		input: resolve(input),
+		cells: cells.length,
+		cols,
+		cell_width: cellW,
+		pages: written,
+		// 标签逐格回执：判读结论指错镜头是这类工具唯一致命的缺陷，
+		// 把「第几格是谁」写进回执，调用方能自己对一遍。
+		labels: cells.map((c, i) => ({ index: i, label: c.label, file: c.file })),
+	};
+	if (opts.json) console.log(JSON.stringify(result));
+	return result;
+}
