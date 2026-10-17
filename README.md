@@ -1,13 +1,13 @@
 # Agent Skills
 
-Clone-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Thirteen packs in `skills/`, each just a folder. No installers, no frameworks, no signup.
+Clone-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Fourteen packs in `skills/`, each just a folder. No installers, no frameworks, no signup.
 
 Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same packs, browsable online.
 
 ```mermaid
 graph TD
-    README["README.md — you are here"] --> SKILLS["skills/ · thirteen packs<br/>each: SKILL.md + optional scripts/ + references/ (+ evals/)"]
-    SKILLS --> VOICE["Voice & content<br/>doubao-tts · video-script-conversion"]
+    README["README.md — you are here"] --> SKILLS["skills/ · fourteen packs<br/>each: SKILL.md + optional scripts/ + references/ (+ evals/)"]
+    SKILLS --> VOICE["Voice & content<br/>doubao-tts · video-script-conversion · talkcut"]
     SKILLS --> VISUAL["Replication & visual<br/>landing-page-replication-v5 · webgl-threejs-background-animation<br/>interactive-projects-stream · design-md-visual-system"]
     SKILLS --> TOOLS["Data & tooling<br/>geo-job-hunt · seo-master · clerk-auth · feedback-pipeline"]
     SKILLS --> NET["Network / infra<br/>ai-native-mihomo · ai-native-proof-ledger · cloudflare-cost-guard"]
@@ -36,6 +36,7 @@ These packs come from real pipelines on lizliz.xyz: they were built to get actua
 </p>
 
 - **Doubao TTS** — Turn articles into spoken audio, dual-speaker podcasts, and ASR transcripts via Volcengine 豆包语音 · [doubao-tts/](skills/doubao-tts/)
+- **Talkcut** — 剪口播：豆包语音字级转写 → AI 按语义只留最后一遍、保留气口 → localhost 划线审核 → ffmpeg 出片 + 逐字高亮字幕 + 章节导航条 · [talkcut/](skills/talkcut/)
 - **Geo Job Hunt** — Find jobs inside a map radius — Amap fence + Liepin hiring, batch apply with rate-limit guardrails · [geo-job-hunt/](skills/geo-job-hunt/)
 - **Landing Replication v5** — Copy a marketing landing page with measurable gates: capture, density, micro-parity, offline behavior probes · [landing-page-replication-v5/](skills/landing-page-replication-v5/)
 - **Video Script Conversion** — Rebuild, refine, and audit spoken-voice scripts from articles — five seconds decide if viewers stay · [video-script-conversion/](skills/video-script-conversion/)

@@ -1,0 +1,17 @@
+{
+  "background": "#000000",
+  "foreground": "#FFFFFF",
+  "progress": "#64A9E8",
+  "track": "#404040",
+  "height_ratio": 0.16,
+  "margin_ratio": 0.045,
+  "title_ratio": 0.042,
+  "desc_ratio": 0.032,
+  "title_top_ratio": 0.018,
+  "desc_top_ratio": 0.075,
+  "track_bottom_ratio": 0.012,
+  "track_height_ratio": 0.0065,
+  "gap_ratio": 0.0045,
+  "font_title": "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+  "font_desc": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+}
