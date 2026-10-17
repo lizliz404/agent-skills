@@ -36,7 +36,7 @@ These packs come from real pipelines on lizliz.xyz: they were built to get actua
 </p>
 
 - **Doubao TTS** — Turn articles into spoken audio, dual-speaker podcasts, and ASR transcripts via Volcengine 豆包语音 · [doubao-tts/](skills/doubao-tts/)
-- **Talkcut** — 剪口播：豆包语音字级转写 → AI 按语义只留最后一遍、保留气口 → localhost 划线审核 → ffmpeg 出片 + 逐字高亮字幕 + 章节导航条 · [talkcut/](skills/talkcut/)
+- **Talkcut** — Cut talking-head videos: Doubao Speech (豆包语音) per-character ASR → AI keeps only the last take of repeated lines and preserves breathing pauses → localhost strike-through review → ffmpeg render + per-word highlight subtitles + chapter navigation bar · [talkcut/](skills/talkcut/)
 - **Geo Job Hunt** — Find jobs inside a map radius — Amap fence + Liepin hiring, batch apply with rate-limit guardrails · [geo-job-hunt/](skills/geo-job-hunt/)
 - **Landing Replication v5** — Copy a marketing landing page with measurable gates: capture, density, micro-parity, offline behavior probes · [landing-page-replication-v5/](skills/landing-page-replication-v5/)
 - **Video Script Conversion** — Rebuild, refine, and audit spoken-voice scripts from articles — five seconds decide if viewers stay · [video-script-conversion/](skills/video-script-conversion/)

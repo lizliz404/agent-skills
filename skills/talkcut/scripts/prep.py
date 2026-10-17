@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""步骤 1：拼接多段素材 → work/source.mp4，并抽出 16kHz 单声道 mp3 → work/audio.mp3。
+"""Step 1: concatenate clips -> work/source.mp4 and extract 16 kHz mono mp3 -> work/audio.mp3.
 
-用法: python3 prep.py clip1.mp4 [clip2.mp4 ...] -o work/
-多段素材统一重编码后拼接（参数不一致也安全）；只有一段时直接复制。
+Usage: python3 prep.py clip1.mp4 [clip2.mp4 ...] -o work/
+Multiple clips are re-encoded uniformly before concat (safe with mismatched params); a single clip is stream-copied.
 """
 import argparse, subprocess
 from pathlib import Path

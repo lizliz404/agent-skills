@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""步骤 5：本地审核页。python3 review_server.py work/transcript.json [--port 8765]
-浏览器打开 http://127.0.0.1:8765 ：点句子切换保留/删除（删除=划线），Alt+点字单独删字，
-双击跳到该处播放，⌘/Ctrl+S 保存回 transcript.json。只监听 127.0.0.1。
+"""Step 5: local review page. python3 review_server.py work/transcript.json [--port 8765]
+Open http://127.0.0.1:8765 : click a sentence to toggle keep/cut (cut = struck through), Alt+click a word to cut it,
+double-click to play from there, Cmd/Ctrl+S saves back to transcript.json. Listens on 127.0.0.1 only.
 """
 import argparse, json, mimetypes, os, re, shutil
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -31,7 +31,7 @@ class H(BaseHTTPRequestHandler):
             return self.media(TP.parent / json.loads(TP.read_text(encoding="utf-8"))["media"])
         self.send(404, b"{}")
 
-    def media(self, f):  # 支持 Range，视频才能拖动/跳转
+    def media(self, f):  # Range support so the video can seek
         size = f.stat().st_size
         m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
         start, end = 0, size - 1
@@ -65,5 +65,5 @@ class H(BaseHTTPRequestHandler):
         self.send(200, b'{"ok":true}')
 
 
-print(f"审核页: http://127.0.0.1:{a.port}  (Ctrl+C 退出)")
+print(f"Review page: http://127.0.0.1:{a.port}  (Ctrl+C to quit)")
 ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>talkcut · 审核</title>
+<title>talkcut · Review</title>
 <style>
   :root{--bg:#0e0f11;--panel:#16181b;--fg:#e8e6e1;--mute:#7c7f86;--cut:#e5484d;--keep:#64a9e8;--line:#26292e}
   *{box-sizing:border-box}
@@ -30,12 +30,12 @@
 <aside>
   <video id="v" src="/media" controls preload="metadata"></video>
   <div class="bar">
-    <button class="primary" id="save">保存 ⌘S</button>
-    <button id="preview">预览成片效果</button>
+    <button class="primary" id="save">Save ⌘S</button>
+    <button id="preview">Preview final cut</button>
     <span class="stat" id="stat"></span>
   </div>
-  <div class="bar"><label>气口上限 <input id="pause" type="range" min="0.1" max="1.5" step="0.05"> <b id="pv"></b>s</label></div>
-  <div class="help">单击句子：保留 ⇄ 删除（划线）<br>Alt / ⌥ + 单击字：只删这个字<br>双击：从这里播放<br>预览：播放时自动跳过被删部分<br>保存后让 Agent 运行 render.py 出片</div>
+  <div class="bar"><label>Max pause <input id="pause" type="range" min="0.1" max="1.5" step="0.05"> <b id="pv"></b>s</label></div>
+  <div class="help">Click a sentence: keep ⇄ cut (struck through)<br>Alt / ⌥ + click a word: cut just that word<br>Double-click: play from here<br>Preview: skips cut parts during playback<br>After saving, have the agent run render.py</div>
 </aside>
 <main id="list"></main>
 <script>
@@ -68,7 +68,7 @@ function draw() {
 }
 function stat() {
   const all = T.sentences.length, cut = T.sentences.filter(s => !s.keep).length;
-  $('#stat').textContent = `删 ${cut} / ${all} 句${dirty ? ' · 未保存' : ''}`;
+  $('#stat').textContent = `Cut ${cut} / ${all} sentences${dirty ? ' · unsaved' : ''}`;
 }
 function touch() { dirty = true; stat(); }
 function clean() { return JSON.stringify(T, (k, val) => (k === 'el' ? undefined : val), 2); }
@@ -80,7 +80,7 @@ $('#save').onclick = save;
 addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); save(); } });
 $('#pause').oninput = e => { T.pause_keep = +e.target.value; $('#pv').textContent = T.pause_keep.toFixed(2); touch(); };
 $('#pause').onchange = () => draw();
-$('#preview').onclick = () => { previewing = !previewing; $('#preview').textContent = previewing ? '停止预览' : '预览成片效果'; if (previewing) v.play(); };
+$('#preview').onclick = () => { previewing = !previewing; $('#preview').textContent = previewing ? 'Stop preview' : 'Preview final cut'; if (previewing) v.play(); };
 addEventListener('beforeunload', e => { if (dirty) e.preventDefault(); });
 
 let lastNow;
@@ -90,7 +90,7 @@ v.ontimeupdate = () => {
   if (s && s !== lastNow) { lastNow?.el.classList.remove('now'); s.el.classList.add('now'); s.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); lastNow = s; }
   T.sentences.forEach(x => x.words.forEach(w => w.el.classList.toggle('on', t >= w.start && t < w.end)));
   if (!previewing) return;
-  // 跳过：被删句 / 被删字 / 超过气口上限的停顿
+  // Skip: cut sentences / cut words / pauses longer than the max
   if (s && !s.keep) { const nx = T.sentences.find(x => x.start > s.start && x.keep); if (nx) v.currentTime = nx.start; return; }
   if (s) { const w = s.words.find(w => t >= w.start && t < w.end && w.keep === false); if (w) v.currentTime = w.end; }
 };

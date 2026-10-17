@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""步骤 2–3：火山引擎豆包语音「大模型录音文件识别」→ 带字级时间戳的逐字稿 transcript.json。
+"""Steps 2-3: Volcengine Doubao Speech (豆包语音) big-model file ASR -> transcript.json with per-character timestamps.
 
-用法:
-  python3 asr_volc.py work/audio.mp3 -o work/transcript.json            # 极速版（同步，默认）
-  python3 asr_volc.py work/audio.mp3 -o work/transcript.json --standard # 标准版（异步 submit/query）
-  python3 asr_volc.py --normalize raw.json -o work/transcript.json      # 只把已有原始结果转成 talkcut 格式
+Usage:
+  python3 asr_volc.py work/audio.mp3 -o work/transcript.json            # Flash (synchronous, default)
+  python3 asr_volc.py work/audio.mp3 -o work/transcript.json --standard # Standard (async submit/query)
+  python3 asr_volc.py --normalize raw.json -o work/transcript.json      # only convert an existing raw result
 
-凭证（只从环境变量 / 本机 env 文件读取，绝不写进仓库）：
-  新版控制台: DOUBAO_API_KEY            → X-Api-Key
-  旧版控制台: VOLC_APP_ID + VOLC_ACCESS_TOKEN → X-Api-App-Key / X-Api-Access-Key
-  也会读取 ~/.agents/env/doubao-tts.env（与本仓库 doubao-tts 技能共用）。
+Credentials (read only from env vars / local env file, never committed):
+  New console: DOUBAO_API_KEY            -> X-Api-Key
+  Old console: VOLC_APP_ID + VOLC_ACCESS_TOKEN -> X-Api-App-Key / X-Api-Access-Key
+  Also reads ~/.agents/env/doubao-tts.env (shared with this repo's doubao-tts skill).
 
-只开必要参数：标点 + ITN + 分句(utterances，含 words)。不开说话人分离、情绪、语速等附加项，省钱。
+Only the needed options: punctuation + ITN + utterances (with words). No diarization, emotion, speech rate, etc., to save cost.
 """
 import argparse, base64, json, os, sys, time, urllib.request, uuid
 from pathlib import Path
@@ -42,7 +42,7 @@ def headers(resource, request_id):
     elif app and tok:
         h["X-Api-App-Key"], h["X-Api-Access-Key"] = app, tok
     else:
-        sys.exit("缺少凭证：设置 DOUBAO_API_KEY，或 VOLC_APP_ID + VOLC_ACCESS_TOKEN")
+        sys.exit("Missing credentials: set DOUBAO_API_KEY, or VOLC_APP_ID + VOLC_ACCESS_TOKEN")
     return h
 
 
@@ -51,8 +51,8 @@ def payload(audio_path):
     return {"user": {"uid": "talkcut"},
             "audio": {"data": data, "format": Path(audio_path).suffix.lstrip(".") or "mp3"},
             "request": {"model_name": "bigmodel", "enable_itn": True, "enable_punc": True,
-                        "enable_ddc": False,          # 不做顺滑：语气词/重复要留给我们自己判断
-                        "show_utterances": True}}     # utterances 内含 words[] 的字级时间戳
+                        "enable_ddc": False,          # no disfluency smoothing: we need fillers/repeats to decide cuts
+                        "show_utterances": True}}     # utterances carry words[] with per-character timestamps
 
 
 def post(url, hdr, body):
@@ -66,7 +66,7 @@ def flash(audio):
     h, body = post(url, headers(res, str(uuid.uuid4())), payload(audio))
     code = h.get("X-Api-Status-Code")
     if code != "20000000":
-        sys.exit(f"识别失败 {code} {h.get('X-Api-Message')}: {body[:300]!r}")
+        sys.exit(f"Recognition failed {code} {h.get('X-Api-Message')}: {body[:300]!r}")
     return json.loads(body)
 
 
@@ -75,7 +75,7 @@ def standard(audio):
     rid = str(uuid.uuid4())
     h, body = post(sub, headers(res, rid), payload(audio))
     if h.get("X-Api-Status-Code") != "20000000":
-        sys.exit(f"提交失败 {h.get('X-Api-Status-Code')} {h.get('X-Api-Message')}")
+        sys.exit(f"Submit failed {h.get('X-Api-Status-Code')} {h.get('X-Api-Message')}")
     qh = headers(res, rid)
     if h.get("X-Tt-Logid"):
         qh["X-Tt-Logid"] = h["X-Tt-Logid"]
@@ -86,13 +86,13 @@ def standard(audio):
         if code == "20000000":
             return json.loads(body)
         if code not in ("20000001", "20000002", None):
-            sys.exit(f"识别失败 {code} {h.get('X-Api-Message')}")
+            sys.exit(f"Recognition failed {code} {h.get('X-Api-Message')}")
         print(".", end="", flush=True)
-    sys.exit("轮询超时")
+    sys.exit("Polling timed out")
 
 
 def normalize(raw, media=None):
-    """火山原始结果 → talkcut transcript：秒为单位，每句带 words，默认全部 keep。"""
+    """Raw Volcengine result -> talkcut transcript: seconds, words per sentence, everything keep=True."""
     utts = raw.get("result", raw).get("utterances") or []
     sents = []
     for i, u in enumerate(utts):
@@ -107,17 +107,17 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("audio", nargs="?")
     p.add_argument("-o", "--out", default="work/transcript.json")
-    p.add_argument("--standard", action="store_true", help="用标准版异步接口（长音频/大文件）")
-    p.add_argument("--normalize", help="已有的火山原始 JSON")
-    p.add_argument("--media", default="source.mp4", help="写入 transcript 的视频路径（相对 transcript 所在目录）")
+    p.add_argument("--standard", action="store_true", help="use the async Standard API (long audio / large files)")
+    p.add_argument("--normalize", help="existing raw Volcengine JSON")
+    p.add_argument("--media", default="source.mp4", help="video path stored in the transcript (relative to its folder)")
     a = p.parse_args()
     if a.normalize:
         raw = json.loads(Path(a.normalize).read_text(encoding="utf-8"))
     else:
         if not a.audio:
-            p.error("需要音频文件")
+            p.error("an audio file is required")
         raw = standard(a.audio) if a.standard else flash(a.audio)
         Path(a.out).with_suffix(".raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     t = normalize(raw, a.media)
     Path(a.out).write_text(json.dumps(t, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"{len(t['sentences'])} 句 → {a.out}")
+    print(f"{len(t['sentences'])} sentences -> {a.out}")

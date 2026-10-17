@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""步骤 8：章节导航条（致敬 dbskill / dbs-video-navigation 的黑底白字蓝进度条样式）。
+"""Step 8: chapter navigation bar (style credited to dbskill / dbs-video-navigation: black bg, white text, blue progress).
 
-输入 chapters.json（Agent 通读 cut.json 后写出）：
-  {"chapters": [{"title": "第一部分：为什么要剪口播",
-                 "segments": [{"start": 0, "desc": "剪映不懂语义"}, {"start": 12.3, "desc": "只留最后一遍"}]}]}
-  start 为成片(cut.mp4)时间，秒；第一段必须从 0 开始；按时间递增。
-输出：与成片等长、无音轨的 navbar.mp4（宽 = 成片宽，高 = 宽 × height_ratio），放在剪映画面顶部即可。
-渲染：Pillow 每个(章节,段落)画一张文字 PNG → ffmpeg concat 定长拼接 → drawbox 画分章轨道 + 随时间增长的蓝色进度。
-用法: python3 navbar.py work/cut.json work/chapters.json [-o work/navbar.mp4] [--style ../assets/navbar-black-blue.json]
+Input chapters.json (written by the agent after reading cut.json):
+  {"chapters": [{"title": "Part 1: Why cut talking heads",
+                 "segments": [{"start": 0, "desc": "CapCut misses meaning"}, {"start": 12.3, "desc": "Keep only the last take"}]}]}
+  start = time in the final cut (cut.mp4), seconds; first segment starts at 0; increasing.
+Output: navbar.mp4, same length as the cut, no audio (width = cut width, height = width x height_ratio); place it on top in CapCut (剪映).
+Render: Pillow draws one text PNG per (chapter, segment) -> ffmpeg concat with fixed durations -> drawbox track + time-driven blue progress.
+Usage: python3 navbar.py work/cut.json work/chapters.json [-o work/navbar.mp4] [--style ../assets/navbar-black-blue.json]
 """
 import argparse, json, subprocess, tempfile
 from pathlib import Path
@@ -23,7 +23,7 @@ a = p.parse_args()
 try:
     from PIL import Image, ImageDraw, ImageFont
 except ImportError:
-    raise SystemExit("需要 Pillow：pip install pillow")
+    raise SystemExit("Pillow required: pip install pillow")
 
 cp = Path(a.cut); c = load(cp); st = load(a.style)
 video = cp.parent / c["media"]
@@ -36,17 +36,17 @@ for ch in load(a.chapters)["chapters"]:
     for sg in ch["segments"]:
         rows.append({"title": ch["title"], "desc": sg.get("desc", ""), "start": float(sg["start"])})
 rows.sort(key=lambda r: r["start"])
-assert rows and rows[0]["start"] == 0, "第一段必须从 0 开始"
+assert rows and rows[0]["start"] == 0, "the first segment must start at 0"
 for i, r in enumerate(rows):
     r["end"] = rows[i + 1]["start"] if i + 1 < len(rows) else T
-    assert r["end"] > r["start"], f"段落时间必须递增: {r}"
+    assert r["end"] > r["start"], f"segment times must increase: {r}"
 
 def font(path, weight):
     if Path(path).exists():
         return path
     r = subprocess.run(["fc-match", "-f", "%{file}", f":lang=zh:weight={weight}"], capture_output=True, text=True)
     if r.returncode or not r.stdout:
-        raise SystemExit(f"找不到中文字体 {path}；在样式 JSON 里填 font_title / font_desc 的绝对路径")
+        raise SystemExit(f"CJK font not found {path}; set absolute font_title / font_desc paths in the style JSON")
     return r.stdout
 
 
@@ -59,7 +59,7 @@ for i, r in enumerate(rows):
     img = Image.new("RGB", (W, H), st["background"]); d = ImageDraw.Draw(img)
     for text, font, top in ((r["title"], ft, st["title_top_ratio"]), (r["desc"], fd, st["desc_top_ratio"])):
         if d.textlength(text, font=font) > W - 2 * m:
-            print(f"⚠️ 文字超宽，请精简：{text}")
+            print(f"⚠️ text too wide, shorten it: {text}")
         d.text((m, round(W * top)), text, font=font, fill=st["foreground"])
     img.save(tmp / f"f{i:03}.png")
     concat += [f"file 'f{i:03}.png'", f"duration {r['end'] - r['start']:.6f}"]
@@ -74,7 +74,7 @@ f = [f"fps={fps}", f"drawbox=x={m}:y={ty}:w={tw}:h={th}:color={st['track']}:t=fi
      f"drawbox=x={m}:y={ty}:w='max(1,{tw}*t/{T})':h={th}:color={st['progress']}:t=fill"]
 prev = rows[0]["title"]
 for r in rows[1:]:
-    if r["title"] != prev:  # 只在章节切换处画分隔缝
+    if r["title"] != prev:  # draw a gap only where the chapter changes
         f.append(f"drawbox=x={m + round(tw * r['start'] / T) - gap // 2}:y={ty}:w={gap}:h={th}:color={st['background']}:t=fill")
         prev = r["title"]
 f.append("format=yuv420p")
@@ -86,4 +86,4 @@ got = duration(out)
 print(json.dumps({"output": str(out), "size": [W, H], "duration": round(got, 3), "target": round(T, 3),
                   "rows": len(rows)}, ensure_ascii=False))
 if abs(got - T) > 1 / fps + 0.01:
-    print("⚠️ 时长与成片不一致，请检查")
+    print("⚠️ duration differs from the cut video, check it")

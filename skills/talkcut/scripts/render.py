@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""步骤 6：按 keep 标记精确剪切（重编码），并把时间戳映射到新时间轴。
+"""Step 6: frame-accurate cut by keep flags (re-encode) and remap timestamps to the new timeline.
 
-保留规则：以「保留的字」为单位拼区间；相邻保留字之间的停顿 ≤ pause_keep 原样保留（气口），
-更长的停顿压到 pause_keep；被删的字/句整段去掉。每段两端各留 pad 秒防止吃字。
-输出: cut.mp4 + cut.json（新时间轴的逐字稿，供字幕和导航条使用）
-用法: python3 render.py work/transcript.json -o work/cut.mp4 [--pad 0.05]
+Rule: build ranges from kept words; pauses between kept words <= pause_keep stay as-is (breathing room),
+longer pauses are shortened to pause_keep; cut words/sentences are removed. Each range gets pad s on both ends to avoid clipping.
+Output: cut.mp4 + cut.json (transcript on the new timeline, for subtitles and navbar)
+Usage: python3 render.py work/transcript.json -o work/cut.mp4 [--pad 0.05]
 """
 import argparse, subprocess
 from pathlib import Path
@@ -14,7 +14,7 @@ from common import load, save, need, duration
 def segments(t, pad):
     gap = t.get("pause_keep", 0.5)
     allw = sorted((w for s in t["sentences"] for w in s["words"]), key=lambda w: w["start"])
-    for i, w in enumerate(allw):  # 每个字前后的「安全边界」：不越过相邻字（含被删字）
+    for i, w in enumerate(allw):  # safe bounds around each word: never cross into neighbours (including cut words)
         w["_lo"] = allw[i - 1]["end"] if i else 0.0
         w["_hi"] = allw[i + 1]["start"] if i + 1 < len(allw) else w["end"] + gap
     keep = {id(w) for s in t["sentences"] if s["keep"] for w in s["words"] if w.get("keep", True)}
@@ -22,12 +22,12 @@ def segments(t, pad):
     for w in allw:
         if id(w) not in keep:
             if segs and "broken" not in segs[-1]:
-                segs[-1].append("broken")  # 被删字打断连续性
+                segs[-1].append("broken")  # a cut word breaks continuity
             continue
         if segs and "broken" not in segs[-1] and w["start"] - segs[-1][1] <= gap:
             segs[-1][1] = w["end"]; segs[-1][2] = w["_hi"]
         else:
-            if segs:  # 收尾：给上一段留半个气口（不越界）
+            if segs:  # close the previous range with half a pause (within bounds)
                 segs[-1][1] = min(segs[-1][1] + max(pad, gap / 2), segs[-1][2])
             segs.append([max(w["_lo"], w["start"] - max(pad, gap / 2)), w["end"], w["_hi"]])
     if segs:
@@ -91,4 +91,4 @@ subprocess.run([need("ffmpeg"), "-y", "-v", "error", "-i", str(media), "-filter_
 sents, total = remap(t, segs)
 save(out.with_suffix(".json"), {"version": 1, "media": out.name, "duration": round(total, 3),
                                 "segments": segs, "sentences": sents})
-print(f"{len(segs)} 段, {end:.1f}s → {total:.1f}s : {out}")
+print(f"{len(segs)} ranges, {end:.1f}s -> {total:.1f}s : {out}")

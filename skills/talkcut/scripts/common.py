@@ -1,4 +1,4 @@
-"""talkcut 共用工具：读写 JSON、ffprobe、时间格式。仅标准库。"""
+"""Shared talkcut helpers: JSON I/O, ffprobe, time formatting. Stdlib only."""
 import json, shutil, subprocess, sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from pathlib import Path
 def need(tool):
     path = shutil.which(tool)
     if not path:
-        sys.exit(f"缺少 {tool}，请先安装 ffmpeg（含 ffprobe）")
+        sys.exit(f"Missing {tool}; install ffmpeg (with ffprobe) first")
     return path
 
 
