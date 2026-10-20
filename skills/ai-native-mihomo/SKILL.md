@@ -1,23 +1,52 @@
 ---
 name: ai-native-mihomo
-description: >-
-  Use when setting up, migrating, or troubleshooting a headless Clash-family
-  proxy stack (mihomo / Clash Meta core) on Linux in an AI-native way:
-  headless core + REST API (external-controller) as the agent control surface,
-  rootless systemd + TUN system-wide transparent proxy via setcap, agent
-  self-heal of network failures, or deciding GUI-wrapper (FlClash, Clash
-  Verge Rev) vs headless. Also covers the CN-network download doctrine
-  (mirrors, human-phone relay) and API-driven proxy control (switch nodes,
-  health checks, reload, subscriptions), region-priority exit selection, and
-  safely ingesting a new profile. Matches "Clash proxy / TUN proxy / 梯子 /
-  机场落地" intents. Not for picking airports/subscriptions (human business)
-  or WireGuard-lane VPNs (this stack is proxying, not a VPN).
-version: 1.2.0
+description: "Use when setting up, migrating, or troubleshooting a headless Clash-family proxy stack (mihomo / Clash Meta core) on Linux in an AI-native way: headless core + REST API (external-controller) as the agent control surface, rootless systemd + TUN system-wide transparent proxy via setcap, agent self-heal of network failures, or deciding GUI-wrapper (FlClash, Clash Verge Rev) vs headless. Also covers the CN-network download doctrine (mirrors, human-phone relay) and API-driven proxy control (switch nodes, health"
+version: 1.3.0
 author: Liz (lizliz.xyz)
 license: MIT
 ---
 
 # AI-native mihomo proxy stack
+
+## Triage first — one command, then doctrine
+
+**"Is the proxy broken?" is a fixed question. Answer it with a fixed command,
+not by re-deriving a path each session.**
+
+```bash
+mihomo-doctor          # exit 0 healthy / 1 degraded / 2 broken; --json, -q
+```
+
+It lives at `~/dev/mihomo-manager/tools/mihomo-doctor` (symlinked into
+`~/.local/bin`), read-only, ~8 s, and reports in one pass: service + API + TUN,
+current exit with its health history, **per-airport node liveness**, provider
+subscription expiry/quota, three real end-to-end probes, and auto-select
+flapping in the last hour. Symptom → verdict table, the few manual commands
+worth keeping, and this machine's current airport inventory: `TRIAGE.md` next
+to it.
+
+The reading that matters most: **per-airport liveness**. One airport at `0/N
+alive` while another is healthy is not a mihomo bug and not a reason to debug
+the core — it is a dead airport, i.e. a business decision (renew, replace, or
+drop it from the candidate list). "Slow everywhere but every probe returns
+200" is bandwidth, not failure. Only `code=000`, timeouts, or `alive=false`
+mean down.
+
+Three measurement traps that have already produced wrong answers here:
+
+- **Never judge node/airport liveness by DNS.** With TUN + `fake-ip`, *every*
+domain resolves to `198.18.x.x`; and `dig` is not installed on this machine —
+its empty output is not `NXDOMAIN`. Liveness comes from `/proxies` `alive` +
+`history` only.
+- **Never use `GET /group/<g>/delay` as a probe** (it clears the selection and
+  tests every member) — single nodes: `GET /proxies/<name>/delay`.
+- **Provider proxies may be absent from the `/proxies` map** while still working;
+  they show up under `/providers/proxies/<name>` and can be the current `now`
+  of a selector. Look there before declaring a node missing.
+
+If the doctor's verdict is clear, stop investigating and act on it. Doctrine
+below is for building or changing the stack, not for re-diagnosing an exit
+that already has a reading.
 
 ## The pattern
 
@@ -133,6 +162,42 @@ curl -s -X POST "$API/restart"
 journalctl --user -u mihomo -f                    # logs
 ```
 
+## Airport-level failover — "one subscription dies, switch to the next"
+
+Node-level health is the wrong unit for this question. A whole airport dies at
+once (2026-10-20: the main line's 46 inline nodes were all `alive=false`,
+`delay=0`, while the backup airport was fine). So the selector also needs an
+**ordered airport list** — `provider_order` in the policy SOT, sources `""` for
+inline nodes and the `proxy-provider` name otherwise — and it must outrank
+region priority: the second airport's healthy node beats the first airport's
+best dead one.
+
+**Probe the exit end-to-end; do not trust the health cache.** A 204 through the
+local proxy port is the only reading that tracks what the user feels. Health
+history lags by up to the group/provider interval (60 s here) plus the
+selector's freshness window — exactly the "it's broken for two minutes before
+anything happens" complaint. Measured here with a 10 s timer: pointing the exit
+at a dead node fails over in ~10 s; a history-only check lets the same failure
+sit for 1–2 min.
+
+Three details that make it stable instead of thrashy:
+
+- **Slow ≠ dead.** If the end-to-end probe fails but fresh history still shows
+  the node answering with delay in range, treat it as slow: a switch is still
+  allowed, but only after the cooldown. Otherwise one congested minute becomes a
+  switching storm.
+- **Avoid list.** A node that just failed goes on a ~10 min avoid list so the
+  selector cannot rotate back into the same bad node next run.
+- **Airport order belongs in policy, not in the script.** Hard-coded
+  `PRIORITY` / `PROVIDER_ORDER` constants in a several-hundred-line selector
+  drift from `policy.yaml` within weeks; emit them into the generated manifest
+  and have the selector read them.
+
+And the honest limit: failover only moves traffic to a surviving airport. If
+only one airport is alive and that one is congested, the selector can only pick
+the least-bad node inside it — the bottleneck is airport quality, not switching
+logic.
+
 ## Node strategy — region priority is a different axis from latency
 
 Two independent dimensions, constantly confused:
@@ -165,7 +230,8 @@ Within a region the same logic recurs one level down:
   the chosen region.
 - **Same region + same tier → do not switch.** A few tens of ms between peers
   is noise; flapping costs connections and buys nothing.
-- **Current exit dead → degrade immediately**, cooldown does not apply.
+- **Current exit dead → degrade immediately**, cooldown does not apply (see
+  Airport-level failover for how "dead" is decided).
 - **Higher-priority region or cheaper tier recovered → switch back, but obey a
   cooldown** (~5 min), so an oscillating node does not ping-pong you.
 
@@ -453,6 +519,9 @@ Concrete instance of the pattern (paths/secret are machine-specific):
 | Config | `~/.config/mihomo/config.yaml` (airport profile + patches, `tun.stack: gvisor`) |
 | Geo data | `~/.config/mihomo/{GeoIP,GeoSite}.dat` (reused from FlClash data dir) |
 | Service | `~/.config/systemd/user/mihomo.service` → `systemctl --user ...` |
+| Diagnostics | `mihomo-doctor` (→ `~/dev/mihomo-manager/tools/mihomo-doctor`), `TRIAGE.md` |
+| Selector | `mihomo-auto-select.timer` (60 s) + `mihomo-manager/auto-select.py`, policy in `policy.yaml` |
+| Providers | inline snapshot (快车 gfw2500, no live subscription URL) + `proxy-provider` 绿树 lvshu (hourly refresh, long-term backup) |
 | API | `http://127.0.0.1:9090`, secret: real value in `~/.config/mihomo/config.yaml` (never copy secrets into docs) |
 | Proxy port | `127.0.0.1:7890` (mixed, `allow-lan: true` for LAN devices) |
 | Legacy GUI | FlClash AppImage extracted at `~/Downloads/squashfs-root`; launch with `LD_LIBRARY_PATH=lib:syslibs` (bundled legacy libstdc++ breaks EGL on rolling mesa — bypass bundled libs, symlink only `libkeybinder-3.0.so.0`) |
