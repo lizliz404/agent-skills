@@ -1,6 +1,6 @@
 [Unit]
 Description=监听 mihomo sources 目录：有新订阅丢进来就自动 reconcile
-Documentation=file:%h/dev/mihomo-manager/README.md
+Documentation=file:%h/dev/agent-skills/skills/ai-native-mihomo/references/mihomo-manager.md
 
 [Path]
 # 目录内容变化即触发。复制到一半的文件由 service 里的 sleep + 脚本 settle() 兜住。
