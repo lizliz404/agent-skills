@@ -17,8 +17,8 @@ not by re-deriving a path each session.**
 mihomo-doctor          # exit 0 healthy / 1 degraded / 2 broken; --json, -q
 ```
 
-It lives at `~/dev/mihomo-manager/tools/mihomo-doctor` (symlinked into
-`~/.local/bin`), read-only, ~8 s, and reports in one pass: service + API + TUN,
+It ships with this skill as `scripts/mihomo-doctor` (installed on the machine
+by symlink into `~/.local/bin`), read-only, ~8 s, and reports in one pass: service + API + TUN,
 current exit with its health history, **per-airport node liveness**, provider
 subscription expiry/quota, three real end-to-end probes, and auto-select
 flapping in the last hour. Symptom → verdict table, the few manual commands
@@ -519,9 +519,9 @@ Concrete instance of the pattern (paths/secret are machine-specific):
 | Config | `~/.config/mihomo/config.yaml` (airport profile + patches, `tun.stack: gvisor`) |
 | Geo data | `~/.config/mihomo/{GeoIP,GeoSite}.dat` (reused from FlClash data dir) |
 | Service | `~/.config/systemd/user/mihomo.service` → `systemctl --user ...` |
-| Diagnostics | `mihomo-doctor` (→ `~/dev/mihomo-manager/tools/mihomo-doctor`), `TRIAGE.md` |
+| Diagnostics | `scripts/mihomo-doctor` + `TRIAGE.md` (both in this skill; `~/.local/bin/mihomo-doctor` symlinks to the script) |
 | Selector | `mihomo-auto-select.timer` (60 s) + `mihomo-manager/auto-select.py`, policy in `policy.yaml` |
-| Providers | inline snapshot (快车 gfw2500, no live subscription URL) + `proxy-provider` 绿树 lvshu (hourly refresh, long-term backup) |
+| Providers | `proxy-provider` 绿树 lvshu = primary (hourly refresh); inline 快车 gfw2500 = fallback only (no subscription URL, 46/46 dead as of 2026-10-20) |
 | API | `http://127.0.0.1:9090`, secret: real value in `~/.config/mihomo/config.yaml` (never copy secrets into docs) |
 | Proxy port | `127.0.0.1:7890` (mixed, `allow-lan: true` for LAN devices) |
 | Legacy GUI | FlClash AppImage extracted at `~/Downloads/squashfs-root`; launch with `LD_LIBRARY_PATH=lib:syslibs` (bundled legacy libstdc++ breaks EGL on rolling mesa — bypass bundled libs, symlink only `libkeybinder-3.0.so.0`) |

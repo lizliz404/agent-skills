@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+"""mihomo-doctor —— 一条命令回答「代理是不是挂了，挂在哪一层」。
+
+设计约束（与 ai-native-mihomo skill 的复杂度原则一致）：
+  * 只读。不改配置、不切节点、不刷新 provider。
+  * 不重复 mihomo 自己的健康检查循环：直接读 /proxies 的 history。
+  * 探针有上限（默认 3 个目标），单次运行几秒内结束。
+  * 不打印任何密钥 / 订阅 URL / 节点凭据。
+
+退出码：0 = 正常，1 = 降级（能用但有问题），2 = 坏了。
+
+用法：
+  mihomo-doctor            # 中文可读报告
+  mihomo-doctor --json     # 机器可读
+  mihomo-doctor -q        # 只打印结论
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+
+CONFIG = os.path.expanduser("~/.config/mihomo/config.yaml")
+MANIFEST = os.path.expanduser("~/.config/mihomo/manager/manifest.json")
+UA = "clash.meta/mihomo"
+
+PROBES = [
+    ("https://www.gstatic.com/generate_204", {204}),
+    ("https://api.anthropic.com/v1/messages", {405, 401, 404, 200}),
+    ("https://api.telegram.org", {200, 302}),
+]
+
+SLOW_MS = 2500
+FLAP_WARN = 3          # 近 60 分钟自动切换次数达到这个值就提示
+QUOTA_WARN = 0.90
+EXPIRY_WARN_DAYS = 7
+
+
+# ---------------------------------------------------------------- helpers
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+JUNK_FALLBACK = [r"^官网[:：]", r"^永久流量[:：]", r"^剩余流量[:：]", r"^流量[:：]", r"^到期时间[:：]", r"^套餐[:：]", r"^订阅[:：]"]
+
+
+def junk_patterns() -> list[str]:
+    """伪节点（官网/流量公告）不算可用节点。
+
+    列表由 policy.yaml 生成进 manifest（唯一事实源），这里只读；manifest 缺失
+    （未跑过 mihomo-manager）才退回内置副本。
+    """
+    try:
+        pats = load_yaml(MANIFEST).get("exclude_name_patterns") or []
+        if pats:
+            return [str(p) for p in pats]
+    except Exception:  # noqa: BLE001
+        pass
+    return JUNK_FALLBACK
+
+
+def is_junk(name: str, patterns: list[str]) -> bool:
+    return any(re.search(p, name) for p in patterns)
+
+
+def load_yaml(path: str) -> dict:
+    import yaml  # 系统有 pyyaml；没有就退化成空配置
+
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def parse_rfc3339(ts: str) -> datetime | None:
+    """mihomo 的 history.time 带纳秒，datetime 只吃微秒 —— 截断再解析。"""
+    if not ts:
+        return None
+    m = re.match(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(.*)$", ts)
+    if not m:
+        return None
+    head, frac, tz = m.group(1), (m.group(2) or "")[:6].ljust(6, "0"), m.group(3) or ""
+    if tz in ("Z", ""):
+        tz = "+00:00"
+    try:
+        return datetime.fromisoformat(f"{head}.{frac}{tz}")
+    except ValueError:
+        return None
+
+
+def human_dur(seconds: float) -> str:
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}min"
+    if seconds < 86400:
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return f"{seconds // 86400}d"
+
+
+def human_gib(nbytes: float) -> str:
+    return f"{nbytes / 1024 ** 3:.0f} GiB"
+
+
+# ---------------------------------------------------------------- checks
+
+def check_service() -> dict:
+    r = subprocess.run(
+        ["systemctl", "--user", "is-active", "mihomo"],
+        capture_output=True, text=True,
+    )
+    active = r.stdout.strip()
+    since = ""
+    props = subprocess.run(
+        ["systemctl", "--user", "show", "mihomo", "-p", "ActiveEnterTimestampMonotonic", "-p", "MainPID"],
+        capture_output=True, text=True,
+    ).stdout
+    try:
+        pid = re.search(r"MainPID=(\d+)", props).group(1)
+        etime = subprocess.run(["ps", "-o", "etimes=", "-p", pid], capture_output=True, text=True).stdout.strip()
+        if etime:
+            since = human_dur(float(etime))
+    except Exception:
+        pass
+    return {
+        "id": "core.service",
+        "status": "ok" if active == "active" else "fail",
+        "detail": f"systemd --user is {active}" + (f" · 已运行 {since}" if since else ""),
+    }
+
+
+class Api:
+    def __init__(self, base: str, secret: str):
+        self.base = base.rstrip("/")
+        self.secret = secret
+
+    def get(self, path: str):
+        req = urllib.request.Request(self.base + path)
+        if self.secret:
+            req.add_header("Authorization", f"Bearer {self.secret}")
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode())
+
+
+def api_from_config(cfg: dict) -> Api:
+    ctrl = str(cfg.get("external-controller") or "127.0.0.1:9090")
+    if not ctrl.startswith("http"):
+        ctrl = "http://" + ctrl
+    return Api(ctrl, str(cfg.get("secret") or ""))
+
+
+def check_api(api: Api, cfg: dict) -> tuple[dict, dict | None]:
+    try:
+        ver = api.get("/version")["version"]
+        conf = api.get("/configs")
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "id": "core.api",
+            "status": "fail",
+            "detail": f"REST API 不可达 ({api.base}): {exc}",
+        }, None
+    tun = (conf.get("tun") or {}).get("enable")
+    return {
+        "id": "core.api",
+        "status": "ok",
+        "detail": f"{ver if str(ver).startswith('v') else 'v' + str(ver)} · mode={conf.get('mode')} · tun={'on' if tun else 'off'} · {api.base}",
+        "data": {"version": ver, "mode": conf.get("mode"), "tun": bool(tun)},
+    }, conf
+
+
+def node_health(rec: dict) -> tuple[bool, int | None, float | None]:
+    """(alive, delay_ms, 数据年龄秒)"""
+    alive = bool(rec.get("alive"))
+    hist = rec.get("history") or []
+    if not hist:
+        return alive, None, None
+    last = hist[-1]
+    ts = parse_rfc3339(last.get("time", ""))
+    age = (now() - ts).total_seconds() if ts else None
+    return alive, last.get("delay"), age
+
+
+def find_node(name: str, proxies: dict, providers: dict) -> dict:
+    if name in proxies:
+        return proxies[name]
+    for prov in providers.values():
+        for node in (prov.get("proxies") or []):
+            if node.get("name") == name:
+                return node
+    return {}
+
+
+def check_exit(api: Api, proxies: dict, group_name: str, providers: dict | None = None,
+               airport: str | None = None) -> dict:
+    group = proxies.get(group_name) or {}
+    current = group.get("now")
+    if not current:
+        return {"id": "exit", "status": "fail", "detail": f"组 {group_name} 不存在或未选中出口",
+                "data": {"group": group_name, "now": None}}
+    rec = find_node(current, proxies, providers or {})
+    alive, delay, age = node_health(rec)
+    provider_rec = None
+    status = "ok"
+    bits = []
+    if not rec:
+        status = "fail"
+        bits.append("节点记录查不到")
+    if rec and not alive:
+        status = "fail"
+        bits.append("当前出口 alive=false")
+    if rec and (delay or 0) == 0:
+        status = "fail"
+        bits.append("最近一次健康检查 delay=0（无响应）")
+    if age is not None and age > 180:
+        status = "warn" if status == "ok" else status
+        bits.append(f"健康数据已 {human_dur(age)} 未刷新")
+    if delay:
+        bits.append(f"{delay}ms")
+    return {
+        "id": "exit",
+        "status": status,
+        "detail": f"{group_name} → {current}" + (f" · 机场 {airport}" if airport else "")
+                  + (" · " + " · ".join(bits) if bits else ""),
+        "data": {"group": group_name, "now": current, "alive": alive, "delay_ms": delay,
+                 "age_s": age, "airport": airport},
+    }
+
+
+def provider_health(providers: dict, name: str) -> dict:
+    p = (providers.get(name) or {})
+    nodes = p.get("proxies") or []
+    alive = sum(1 for n in nodes if n.get("alive"))
+    delays = [n["history"][-1]["delay"] for n in nodes
+              if n.get("history") and (n["history"][-1].get("delay") or 0) > 0]
+    return {
+        "nodes": len(nodes),
+        "alive": alive,
+        "median_delay": sorted(delays)[len(delays) // 2] if delays else None,
+        "updated_at": p.get("updatedAt"),
+    }
+
+
+def check_subscription(url: str) -> dict:
+    """读 subscription-userinfo 头拿到期时间和流量。不打印 URL。"""
+    req = urllib.request.Request(url, method="HEAD")
+    req.add_header("User-Agent", UA)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            info = resp.headers.get("subscription-userinfo", "")
+            code = resp.status
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "fail", "detail": f"订阅拉取失败: {type(exc).__name__}"}
+    fields = dict(
+        (k.strip(), v.strip()) for k, _, v in (part.partition("=") for part in info.split(";")) if k
+    )
+    out: dict = {"status": "ok" if code == 200 else "warn", "detail": f"HTTP {code}"}
+    try:
+        up, down = int(fields.get("upload", 0)), int(fields.get("download", 0))
+        total = int(fields.get("total", 0))
+        if total > 0:
+            used = up + down
+            out.update(total_bytes=total, used_bytes=used, used_ratio=used / total)
+            out["detail"] += f" · 已用 {used / total * 100:.0f}%（剩 {human_gib(total - used)}）"
+    except ValueError:
+        pass
+    try:
+        exp = int(fields["expire"])
+        if exp > 0:
+            days = (datetime.fromtimestamp(exp) - datetime.now()).total_seconds() / 86400
+            out.update(expire=datetime.fromtimestamp(exp).strftime("%Y-%m-%d"), days_left=days)
+            out["detail"] += f" · 到期 {out['expire']}（{days:.0f} 天）"
+    except (KeyError, ValueError):
+        pass
+    return out
+
+
+def probe_target(url: str, expect: set[int], proxy_port: int) -> dict:
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": f"http://127.0.0.1:{proxy_port}",
+                                     "https": f"http://127.0.0.1:{proxy_port}"})
+    )
+    t0 = time.monotonic()
+    try:
+        with opener.open(url, timeout=15) as resp:
+            code, ms = resp.status, (time.monotonic() - t0) * 1000
+    except urllib.error.HTTPError as exc:
+        code, ms = exc.code, (time.monotonic() - t0) * 1000
+    except Exception as exc:  # noqa: BLE001
+        return {"url": url, "code": None, "ms": (time.monotonic() - t0) * 1000,
+                "ok": False, "error": type(exc).__name__}
+    return {"url": url, "code": code, "ms": ms, "ok": code in expect}
+
+
+def check_flapping() -> dict:
+    try:
+        r = subprocess.run(
+            ["journalctl", "--user", "-u", "mihomo-auto-select.service",
+             "--since", "-60 min", "-o", "cat", "--no-pager"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"id": "select.flap", "status": "warn", "detail": f"读不到 selector 日志: {type(exc).__name__}"}
+    switches = len(re.findall(r"^SWITCH ", r.stdout, re.M))
+    status = "warn" if switches >= FLAP_WARN else "ok"
+    return {"id": "select.flap", "status": status,
+            "detail": f"近 60 分钟自动切换 {switches} 次" + ("（出口在抖）" if switches >= FLAP_WARN else ""),
+            "data": {"switches_1h": switches}}
+
+
+# ---------------------------------------------------------------- report
+
+def airport_of(name: str | None, proxies: dict, providers: dict, manifest: dict) -> str | None:
+    """当前出口属于哪家机场（名字 -> 内联/某个 proxy-provider -> 人看的 label）。"""
+    if not name:
+        return None
+    meta = manifest.get("providers") or {}
+    key = "main" if name in proxies else None
+    if key is None:
+        for prov_key, prov in providers.items():
+            if (prov.get("vehicleType") in (None, "Compatible")):
+                continue
+            if any((n or {}).get("name") == name for n in (prov.get("proxies") or [])):
+                key = prov_key
+                break
+    if key is None:
+        return None
+    return str((meta.get(key) or {}).get("name") or key)
+
+
+def collect() -> dict:
+    checks: list[dict] = []
+    airports: list[dict] = []
+
+    cfg = {}
+    if os.path.exists(CONFIG):
+        cfg = load_yaml(CONFIG)
+    else:
+        checks.append({"id": "config", "status": "fail", "detail": f"找不到 {CONFIG}"})
+
+    manifest = {}
+    if os.path.exists(MANIFEST):
+        try:
+            manifest = json.load(open(MANIFEST, encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            manifest = {}
+    group_name = manifest.get("group_name") or "节点列表"
+
+    checks.append(check_service())
+    api = api_from_config(cfg)
+    api_check, _ = check_api(api, cfg)
+    checks.append(api_check)
+
+    proxies, providers = {}, {}
+    if api_check["status"] == "ok":
+        try:
+            proxies = api.get("/proxies").get("proxies") or {}
+            providers = api.get("/providers/proxies").get("providers") or {}
+        except Exception as exc:  # noqa: BLE001
+            checks.append({"id": "core.data", "status": "warn", "detail": f"/proxies 读取失败: {exc}"})
+        exit_check = check_exit(api, proxies, group_name, providers,
+                                airport_of((proxies.get(group_name) or {}).get("now"),
+                                           proxies, providers, manifest))
+        checks.append(exit_check)
+        checks.append(check_flapping())
+
+    # ---- 内联静态机场：只看 mihomo 自己的体检结果（本机 DNS 被 fake-ip 劫持，
+    # 解析结果不能当证据；节点死活以 alive / history 为准）
+    inline = cfg.get("proxies") or []
+    patterns = junk_patterns()
+    if inline:
+        real = [p for p in inline if not is_junk(str(p.get("name")), patterns)]
+        alive = sum(1 for p in real if (proxies.get(str(p.get("name"))) or {}).get("alive"))
+        label = ((manifest.get("providers") or {}).get("main") or {}).get("name") or "内联静态快照"
+        status = "fail" if real and alive == 0 else ("warn" if alive < len(real) * 0.3 else "ok")
+        detail = f"{alive}/{len(real)} 节点健康"
+        if len(inline) != len(real):
+            detail += f"（另有 {len(inline) - len(real)} 个伪节点已排除）"
+        airports.append({"kind": "inline", "name": label, "status": status,
+                         "detail": detail, "nodes": len(real), "alive": alive})
+
+    # ---- provider 机场：节点健康 + 订阅额度
+    for name, prov in (cfg.get("proxy-providers") or {}).items():
+        if str(prov.get("type")) != "http":
+            continue
+        health = provider_health(providers, name)
+        sub = check_subscription(prov["url"]) if prov.get("url") else {"status": "ok", "detail": "无 URL"}
+        status = "ok"
+        if health["nodes"] and health["alive"] == 0:
+            status = "fail"
+        elif sub.get("status") == "fail":
+            status = "warn"
+        if sub.get("days_left") is not None and sub["days_left"] <= EXPIRY_WARN_DAYS:
+            status = "warn"
+        if sub.get("used_ratio") is not None and sub["used_ratio"] >= QUOTA_WARN:
+            status = "warn"
+        label = ((manifest.get("providers") or {}).get(name) or {}).get("name") or name
+        detail = f"{health['alive']}/{health['nodes']} 节点健康"
+        if health["median_delay"]:
+            detail += f" · 中位 {health['median_delay']}ms"
+        if sub.get("detail"):
+            detail += f" · 订阅 {sub['detail']}"
+        shown = label if name in label else f"{label} ({name})"
+        airports.append({"kind": "provider", "name": shown, "status": status,
+                         "detail": detail, "nodes": health["nodes"], "alive": health["alive"],
+                         "subscription": sub})
+
+    # ---- 端到端探针
+    port = int(cfg.get("mixed-port") or 7890)
+    if api_check["status"] == "ok":
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(PROBES)) as pool:
+            probes = list(pool.map(lambda t: probe_target(t[0], t[1], port), PROBES))
+        bad = [p for p in probes if not p["ok"]]
+        slow = [p for p in probes if p["ok"] and p["ms"] > SLOW_MS]
+        status = "fail" if len(bad) == len(probes) else ("warn" if bad or slow else "ok")
+        bits = [f"{'✅' if p['ok'] else '❌'} {urllib.parse.urlsplit(p['url']).netloc} "
+                f"{p.get('code') or p.get('error')} {p['ms'] / 1000:.1f}s" for p in probes]
+        checks.append({"id": "probe", "status": status, "detail": " · ".join(bits), "data": probes})
+        # mihomo 的健康数据可能落后于现实：判它“死”但端到端明明通，就是慢，不是断
+        if exit_check["status"] == "fail" and any(p["ok"] for p in probes):
+            exit_check["status"] = "warn"
+            exit_check["detail"] += " · 端到端仍可达（属慢，不是断）"
+
+    # ---- 判定
+    fails = [c for c in checks if c["status"] == "fail"] + [a for a in airports if a["status"] == "fail"]
+    warns = [c for c in checks if c["status"] == "warn"] + [a for a in airports if a["status"] == "warn"]
+    live_airports = [a for a in airports if a["status"] != "fail" and a["alive"] > 0]
+
+    if any(c["id"] in ("core.service", "core.api") and c["status"] == "fail" for c in checks):
+        verdict = "broken"
+    elif not live_airports:
+        verdict = "broken"
+    elif fails or warns or len(live_airports) < len(airports):
+        verdict = "degraded"
+    else:
+        verdict = "ok"
+
+    return {
+        "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z"),
+        "verdict": verdict,
+        "checks": checks,
+        "airports": airports,
+    }
+
+
+def render(report: dict) -> str:
+    icon = {"ok": "✅", "warn": "⚠️ ", "fail": "❌"}
+    head = {"ok": "正常", "degraded": "降级（能用，但有短板）", "broken": "不可用"}[report["verdict"]]
+    lines = [f"mihomo-doctor  {report['generated_at']}   判定：{head}", ""]
+
+    for c in report["checks"]:
+        lines.append(f"  {icon[c['status']]} {c['id']:<14} {c['detail']}")
+
+    if report["airports"]:
+        lines.append("")
+        for a in report["airports"]:
+            lines.append(f"  {icon[a['status']]} {a['name']:<22} {a['detail']}")
+
+    live = [a["name"] for a in report["airports"] if a["alive"] > 0]
+    dead = [a["name"] for a in report["airports"] if a["alive"] == 0]
+    lines.append("")
+    if report["verdict"] == "ok":
+        lines.append("结论：代理正常，无短板。")
+    else:
+        if dead and live:
+            lines.append(f"结论：{', '.join(live)} 在扛；{', '.join(dead)} 已全死 —— 这是补充订阅的机会，"
+                         f"不是 mihomo 的问题。")
+        elif dead and not live:
+            lines.append(f"结论：所有机场都不可用（{', '.join(dead)}）→ 需要换/买订阅，"
+                         f"或先排查本机网络。")
+        else:
+            lines.append("结论：链路可用但存在上面标出的短板，按 ⚠️/❌ 行的描述处理。")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    args = set(sys.argv[1:])
+    report = collect()
+    if "--json" in args:
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    elif "-q" in args or "--quiet" in args:
+        print(f"{report['verdict']}  " + " | ".join(
+            f"{c['id']}:{c['status']}" for c in report["checks"]))
+    else:
+        print(render(report))
+    return {"ok": 0, "degraded": 1, "broken": 2}[report["verdict"]]
+
+
+if __name__ == "__main__":
+    sys.exit(main())
