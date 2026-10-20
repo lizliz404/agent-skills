@@ -1,0 +1,13 @@
+[Unit]
+Description=mihomo-manager: 合并订阅并应用（任何失败都保持旧配置）
+Documentation=file:%h/dev/mihomo-manager/README.md
+After=mihomo.service
+Requisite=mihomo.service
+
+[Service]
+Type=oneshot
+# 给「文件刚落地/正在复制」留一点 debounce；脚本内部还有 settle() 二次确认。
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 %h/dev/mihomo-manager/mihomo_manager.py reconcile
+# 失败时只记录状态，不动 live —— 不要因为一次坏文件就无限重启
+Restart=no

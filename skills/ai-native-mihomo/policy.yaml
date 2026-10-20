@@ -1,0 +1,65 @@
+# mihomo-manager 策略文件 —— 单一事实源（Single Source of Truth）
+#
+# 改这里就能改变：导入哪些节点、地区优先级、生成的分组结构、selector 的运行参数。
+# auto-select.py 通过 ~/.config/mihomo/manager/manifest.json 读取同一份策略，
+# 所以不要去脚本里再硬编码另一套地区顺序 —— 那一定会漂移。
+
+version: 1
+
+# 地区优先级：严格为 美国 > 日本 > 新加坡 > 台湾 > 其他 > 香港。
+# 香港必须最后，它是兜底。顺序即优先级，不要重排。
+region_order:
+  - 美国
+  - 日本
+  - 新加坡
+  - 台湾
+  - 其他
+  - 香港
+region_fallback: 其他
+
+# 生成的代理组名字
+group_name: 节点列表            # 主出口：select 组，由 auto-select.py 控制
+health_group_suffix: 优选       # 各地区 url-test 健康检查组：美国优选 / 日本优选 / ...
+
+# 地区健康检查组参数（这些组存在的唯一目的是持续驱动 mihomo 的健康检查，
+# 让 auto-select.py 能读到新鲜数据）
+health_group:
+  type: url-test
+  url: https://www.gstatic.com/generate_204
+  interval: 60
+  tolerance: 50
+  lazy: false
+
+# 写进 manifest.json，供 auto-select.py 读取，避免脚本里再硬编码一份
+selector:
+  max_delay_ms: 1000    # 响应慢于此值的节点视为不可用
+  freshness_s: 150      # history 超过这么久没刷新就当过期
+  cooldown_s: 300       # 切换后的冷却期，抑制抖动
+
+# 机场级顺序：整套订阅失效时立即转到下一家（地区优先级只在同一家内部起作用）。
+# source: "" = 内联节点（主线静态快照）；其余值必须是 proxy-providers 里的名字。
+# 层级高于地区：第一家只要还有健康节点，就轮不到第二家（哪怕是“更好的地区”）。
+provider_order:
+  - {label: 绿树 lvshu, source: lvshu}      # 主线
+  - {label: 快车 gfw2500, source: ''}       # 仅作 fallback（2026-10-20：46/46 节点全死）
+
+# 排除明显的「机场流量/官网信息」伪节点。可编辑的正则列表，命中即排除，
+# 并记录到 state.json 的 excluded 里。不要把这类启发式散进代码。
+exclude_name_patterns:
+  - '^官网[:：]'
+  - '^永久流量[:：]'
+  - '^剩余流量[:：]'
+  - '^流量[:：]'
+  - '^到期时间[:：]'
+  - '^套餐[:：]'
+  - '^订阅[:：]'
+
+# 导入时的规范化规则
+normalize:
+  # mihomo 的 client-fingerprint: random 会随机撞到服务端不接受的指纹，
+  # 表现为大面积 REALITY authentication failed（本机 2026-09-14 实测：
+  # 46 个节点只剩 6 个活）。统一改成 chrome。
+  client_fingerprint_random_to: chrome
+
+# 保留多少个 timestamp 备份
+backups_keep: 5

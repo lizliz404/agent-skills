@@ -1,0 +1,18 @@
+# synthetic：与 full_config 里的 美国测试·AWSJP·1倍消耗 同名但定义不同 -> 触发重命名
+proxies:
+  - name: 美国测试·AWSJP·1倍消耗
+    type: vless
+    server: 198.51.100.99
+    port: 8443
+    uuid: 00000000-0000-0000-0000-000000000009
+    client-fingerprint: random
+  - name: 官网：example.invalid
+    type: vless
+    server: 198.51.100.98
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000008
+  - name: 永久流量:100.0G
+    type: vless
+    server: 198.51.100.97
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000007

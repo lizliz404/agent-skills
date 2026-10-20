@@ -1,0 +1,29 @@
+# synthetic fixture —— 假地址（TEST-NET）+ 全零 UUID，只用来测 schema 识别。
+mode: rule
+log-level: warning
+dns:
+  enable: true
+  nameserver: [1.1.1.1]
+tun:
+  enable: false
+rules:
+  - MATCH,DIRECT
+proxies:
+  - name: 美国测试·AWSJP·1倍消耗
+    type: vless
+    server: 198.51.100.11
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000001
+    network: tcp
+    tls: true
+    servername: example.invalid
+    client-fingerprint: random
+  - name: 香港测试·直连·3倍消耗
+    type: vless
+    server: 198.51.100.12
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000002
+    network: tcp
+    tls: true
+    servername: example.invalid
+    client-fingerprint: safari

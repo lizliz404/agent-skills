@@ -1,2 +1,4 @@
 # Zip distribution retired — consumers git clone (see README)
 *.zip
+__pycache__/
+*.pyc

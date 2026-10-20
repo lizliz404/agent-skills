@@ -520,10 +520,20 @@ Concrete instance of the pattern (paths/secret are machine-specific):
 | Geo data | `~/.config/mihomo/{GeoIP,GeoSite}.dat` (reused from FlClash data dir) |
 | Service | `~/.config/systemd/user/mihomo.service` → `systemctl --user ...` |
 | Diagnostics | `scripts/mihomo-doctor` + `TRIAGE.md` (both in this skill; `~/.local/bin/mihomo-doctor` symlinks to the script) |
-| Selector | `mihomo-auto-select.timer` (60 s) + `mihomo-manager/auto-select.py`, policy in `policy.yaml` |
+| Selector | `mihomo-auto-select.timer` (10 s) + `scripts/auto-select.py`, policy in `policy.yaml` |
 | Providers | `proxy-provider` 绿树 lvshu = primary (hourly refresh); inline 快车 gfw2500 = fallback only (no subscription URL, 46/46 dead as of 2026-10-20) |
 | API | `http://127.0.0.1:9090`, secret: real value in `~/.config/mihomo/config.yaml` (never copy secrets into docs) |
 | Proxy port | `127.0.0.1:7890` (mixed, `allow-lan: true` for LAN devices) |
 | Legacy GUI | FlClash AppImage extracted at `~/Downloads/squashfs-root`; launch with `LD_LIBRARY_PATH=lib:syslibs` (bundled legacy libstdc++ breaks EGL on rolling mesa — bypass bundled libs, symlink only `libkeybinder-3.0.so.0`) |
+
+Machine tooling shipped with this skill (same directory):
+
+| Path | What |
+|---|---|
+| `scripts/mihomo-doctor` | one-command triage (see Triage first) |
+| `scripts/auto-select.py` | exit selector: airport tier → region priority, fallback, avoid list |
+| `scripts/mihomo_manager.py` | profile ingestion / merge / validate / atomic promote / rollback |
+| `policy.yaml` | policy SOT for this machine (region order, airport order, junk patterns, selector knobs) |
+| `units/`, `tests/`, `references/mihomo-manager.md` | systemd units, offline tests, manager docs |
 
 Full reproduction steps with per-step completion criteria: [RUNBOOK.md](RUNBOOK.md).

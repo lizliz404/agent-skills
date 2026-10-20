@@ -1,0 +1,12 @@
+[Unit]
+Description=mihomo 出口自动选择（地区优先级 + 自动降级 + 多机场热备）
+Documentation=file:%h/.config/mihomo/auto-select.py
+After=mihomo.service
+Requisite=mihomo.service
+
+[Service]
+Type=oneshot
+# 单次运行的硬上限：一次运行里可能要刷 provider 健康检查/重拉订阅，
+# 但绝不允许把 timer 的下一次运行拖死。
+TimeoutStartSec=120
+ExecStart=/usr/bin/python3 %h/.config/mihomo/auto-select.py

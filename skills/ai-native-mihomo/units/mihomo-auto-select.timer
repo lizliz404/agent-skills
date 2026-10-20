@@ -1,0 +1,13 @@
+[Unit]
+Description=每 10 秒运行一次 mihomo 出口自动选择
+
+[Timer]
+# "丝滑"的关键是检测粒度：出口断了要在几秒内被发现，而不是等 mihomo 下一轮
+# 健康检查（60s）+ 脚本运行（60s）。代价是每天约 8600 次「1 次 204 探针 +
+# 2 次 API 读」，可忽略。想更省可以调到 60。
+OnStartupSec=15
+OnUnitInactiveSec=10
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

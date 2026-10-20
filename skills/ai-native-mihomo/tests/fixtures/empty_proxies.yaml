@@ -1,0 +1,2 @@
+# synthetic：空 proxies，同样应被拒绝
+proxies: []

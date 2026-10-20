@@ -1,0 +1,12 @@
+# synthetic：provider 形态（只有 proxies / proxy-groups）
+proxies:
+  - name: 日本测试·AWSJP·1倍消耗
+    type: vless
+    server: 198.51.100.21
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000003
+    client-fingerprint: random
+proxy-groups:
+  - name: 不该被采纳的组
+    type: select
+    proxies: [日本测试·AWSJP·1倍消耗]
