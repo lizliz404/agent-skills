@@ -1,7 +1,7 @@
 ---
 name: doubao-tts
-description: "Use when generating Doubao/Volcengine article audio (TTS), AI dual-speaker podcasts, or ASR transcripts for Liz's writing pipeline. Covers text cleaning, V1/V3 endpoints, Flash/Standard ASR, podcast binary protocol, lizliz.xyz publish paths, and ElevenLabs fallback routing."
-version: 1.2.0
+description: "Use for Doubao/Volcengine article audio (TTS), dual-speaker podcasts, ASR transcripts, or 语音妙记/智能妙记 for separate interview recordings. Covers text cleaning, V1/V3 endpoints, Flash/Standard ASR, native minutes with timestamps/summaries/chapters/todo/Q&A, private delivery and query-only recovery, lizliz.xyz publish paths, and ElevenLabs fallback routing."
+version: 1.3.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -11,13 +11,13 @@ metadata:
 disable-model-invocation: true
 ---
 
-# Doubao TTS (TTS + Podcast + ASR)
+# Doubao TTS (TTS + Podcast + ASR + Voice Minutes)
 
 ## Overview
 
 Doubao / Volcengine（豆包语音）is widely regarded as **top-tier Chinese speech AI** and is the quality-default provider for Liz's writing pipeline. Prefer 火山引擎豆包 over generic TTS alternatives unless blocked.
 
-This skill covers three 豆包语音 products: **TTS** (text→speech for article audio), **Podcast** (AI dual-speaker conversation), and **ASR** (speech→text with optional diarization). On the **new console**, one API Key authenticates across these services via `X-Api-Key`. Endpoints and resource IDs still differ per product.
+This skill covers four 豆包语音 products: **TTS** (text→speech for article audio), **Podcast** (AI dual-speaker conversation), **ASR** (speech→text with optional diarization), and **Voice Minutes / 语音妙记** (transcription plus native meeting summaries). On the **new console**, one API Key authenticates across these services via `X-Api-Key`. Endpoints and resource IDs still differ per product.
 
 ElevenLabs has a cleaner HTTP API but weaker preferred voice/model quality for this workflow — last-resort fallback only (`elevenlabs-tts`). Do not choose it for convenience.
 
@@ -39,7 +39,8 @@ Existing bundled scripts (`tts-generate.py`, `podcast-generate.py`, `asr-transcr
 
 - **TTS:** Liz asks to turn a writing project, `final.md`, essay, or lizliz.xyz post into spoken audio (豆包 / 火山引擎 / ByteDance TTS).
 - **Podcast:** Liz asks to turn an article, TXT, URL, or topic into a dual-speaker AI podcast (豆包语音播客大模型). Separate product — activate via the [new console](https://console.volcengine.com/speech/new/overview?projectName=default) (legacy activation deep-link also listed in References).
-- **ASR:** Liz asks to transcribe MP3 / WAV / OGG / voice memo / video audio to verbatim text (prefer Flash ASR).
+- **ASR:** Liz asks only for verbatim MP3 / WAV / OGG / voice memo / video-audio text (prefer Flash ASR).
+- **Voice Minutes:** Liz asks for 豆包语音妙记 / 智能妙记, interview/meeting transcription plus native summaries, chapters, todo or Q&A, or to repeat the established separate-recording workflow. Read `references/doubao-minutes.md`; do not substitute plain Flash ASR.
 - Debugging Doubao voices, payloads, article-audio placement, lizliz.xyz audio links, or ASR quality.
 
 **Don't use for:**
@@ -57,7 +58,7 @@ Existing bundled scripts (`tts-generate.py`, `podcast-generate.py`, `asr-transcr
 6. **Production TTS route:** verified V1 `https://openspeech.bytedance.com/api/v1/tts` with `cluster: volcano_tts`. V3 streaming is the migration/realtime path, not the article default.
 7. **Prefer new-console `DOUBAO_API_KEY`** for new work; keep legacy App ID / Access Token only for existing scripts or V1 Bearer payloads until migrated.
 8. **ElevenLabs last resort only** — quota/auth/platform failure, or explicit request. Keep provider visible in filenames/manifests.
-9. **Start from this skill** when Liz mentions Doubao TTS / article audio (`skill_view` / registry) — do not broad-search buried notes first.
+9. **Start from this skill** when Liz mentions Doubao speech / TTS / ASR / 妙记 — read this checkout's `SKILL.md` and route to the relevant reference before broad-searching old notes. Reusable playbooks belong here; recordings, transcripts, credentials and run receipts do not.
 
 ## Environment contract
 
@@ -385,6 +386,20 @@ Resource IDs: `volc.seedasr.auc` (model 2.0) or `volc.bigasr.auc` (model 1.0). U
 
 ---
 
+## Voice Minutes / 语音妙记
+
+For separate interview recordings with native minutes, read [the minutes playbook](references/doubao-minutes.md). It covers `volc.lark.minutes`, submit/query, the established Chinese-only parameters, bounded source delivery, duplicate-billing prevention and output review.
+
+- Keep requested recordings separate. Preserve originals; distinguish remuxed originals from lossy recognition copies.
+- Default to transcription + automatic speaker IDs + word timestamps + summary + chapters + todo/Q&A; **no translation**.
+- `AllActivate` selects **bundled billing**, not all features. Set each feature explicitly; retain the established billing choice unless an evidence-backed cost comparison justifies changing it.
+- Save task IDs and result files. A submit receipt is not completion; recover existing successful tasks by query/download, never by resubmission.
+- Deliver separate readable Markdown and retain reviewed raw result JSON privately. Do not generate ZIP/SRT/TXT or publish/archive recordings by default.
+
+No minutes client is bundled yet; the reference is the reusable contract, not a claim that the legacy ASR script implements minutes.
+
+---
+
 ## Failure signatures
 
 | Signature | Meaning / action |
@@ -404,11 +419,11 @@ Quota APIs exist in console OpenAPI (`QuotaMonitoring`, `UsageMonitoring`, `Reso
 
 ## Beyond this skill
 
-豆包语音 products here: TTS, Podcast, ASR. Adjacent (separate auth / out of default scripts):
+豆包语音 products here: TTS, Podcast, ASR, Voice Minutes (playbook; no bundled client). Adjacent (separate auth / out of default scripts):
 
 - **声音复刻** ICL 1.0/2.0 (`seed-icl-*`)
 - **异步长文本 TTS** (`/api/v3/tts/submit|query`)
-- **端到端实时语音大模型**, **语音同传**, **语音妙记**
+- **端到端实时语音大模型**, **语音同传**
 - **SAMI MusicTagging / 音源分离**, **智能K歌**, **豆包音乐模型**
 
 Details: `references/volcengine-audio-ecosystem.md`. Search Volcengine docs before assuming credential reuse.
@@ -443,7 +458,7 @@ Details: `references/volcengine-audio-ecosystem.md`. Search Volcengine docs befo
 
 ## Verification Checklist
 
-- [ ] Correct product chosen (TTS vs Podcast vs ASR)
+- [ ] Correct product chosen (TTS vs Podcast vs ASR vs Voice Minutes); for minutes also run the reference's completion checks
 - [ ] Env present: prefer `DOUBAO_API_KEY` (or alias); legacy App ID / Access Token if using bundled scripts (`<set>` check)
 - [ ] Cleaned `/tmp` text audited — no YAML/HTML/citations/References
 - [ ] Voice / resource ID matches granted package
@@ -470,6 +485,7 @@ VENV_PY="/home/ubuntu/.hermes/hermes-agent/venv/bin/python3"
 | `scripts/podcast-generate.py` | Dual-speaker podcast WS (legacy headers) |
 | `scripts/extract-transcript.py` | Podcast NLP-only transcript JSON |
 | `scripts/asr-transcribe.py` | Flash ASR → subtitle JSON (legacy headers) |
+| `references/doubao-minutes.md` | Separate-recording native minutes, Chinese-only parameters, source delivery and safe recovery |
 | `references/podcast-api.md` | Podcast API + Liz defaults |
 | `references/podcast-session-learnings.md` | Protocol/quota/venv traps |
 | `references/tts-streaming-v3.md` | V3/TTS 2.0 streaming matrix |
@@ -510,6 +526,12 @@ Split from `doubao-elevenlabs-tts`. Fallback skill: `elevenlabs-tts`.
 ---
 
 ## Change log
+
+### 2026-10-26 → v1.3.0
+
+- Added the established separate-recording Voice Minutes playbook and entry routing; existing TTS/Podcast/Flash code paths unchanged.
+- Made Chinese-only useful features, billing-versus-feature semantics, bounded source delivery and query-only recovery explicit.
+- Kept private recordings, transcripts, credentials and per-run receipts outside the reusable skill.
 
 ### 2026-07-30 nuance → v1.2.0
 
