@@ -34,18 +34,33 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/transcript":
             return self.send(200, TP.read_bytes(), extra={"Cache-Control": "no-store"})
         if self.path == "/media":
-            f = TP.parent / json.loads(TP.read_text(encoding="utf-8"))["media"]
-            if not f.is_file():
+            try:
+                f = (TP.parent / json.loads(TP.read_text(encoding="utf-8"))["media"]).resolve()
+            except Exception:
+                return self.send(404, b'{"error":"media file not found"}')
+            if not f.is_file() or not f.is_relative_to(TP.parent):
                 return self.send(404, b'{"error":"media file not found"}')
             return self.media(f)
         self.send(404, b"{}")
 
     def media(self, f):  # Range support so the video can seek
         size = f.stat().st_size
-        m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
+        m = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range", ""))
         start, end = 0, size - 1
         if m:
-            start = int(m[1] or 0); end = int(m[2]) if m[2] else size - 1
+            if m[1]:  # bytes=start- or bytes=start-end
+                start = int(m[1])
+                if m[2]:
+                    end = int(m[2])
+            elif m[2]:  # bytes=-N: the last N bytes
+                start = max(0, size - int(m[2]))
+            end = min(end, size - 1)
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
         self.send_response(206 if m else 200)
         self.send_header("Content-Type", mimetypes.guess_type(f.name)[0] or "video/mp4")
         self.send_header("Accept-Ranges", "bytes")
@@ -68,7 +83,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(404, b"{}")
         try:
             data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            assert "sentences" in data
+            assert isinstance(data.get("sentences"), list)
         except Exception:
             return self.send(400, b'{"error":"bad transcript payload"}')
         shutil.copyfile(TP, TP.with_suffix(".bak.json"))

@@ -13,7 +13,7 @@
   ::-webkit-scrollbar-thumb{background:#2c3138;border-radius:5px;border:3px solid var(--bg)}
   aside{padding:22px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px;overflow:auto}
   video{width:100%;max-height:52vh;background:#000;border-radius:10px}
-  .verr{font-size:12px;color:var(--manual);margin-top:-6px}
+  .verr{font-size:12px;color:var(--manual);margin-top:-6px} .verr button{margin-left:6px;padding:2px 8px;font-size:12px}
   .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px;transition:border-color .12s,background .12s}
   button:hover{border-color:var(--keep)} button.on{background:var(--keep);color:#06121f;border-color:var(--keep);font-weight:600}
@@ -37,7 +37,8 @@
   .s{display:flex;gap:10px;align-items:flex-start;padding:6px 12px;border-radius:8px;cursor:pointer;border-left:3px solid transparent;transition:background .12s;user-select:none}
   .s:hover{background:var(--panel)} .s.cur{background:var(--panel2);outline:1px solid #394a5c;outline-offset:-1px} .s.now{background:#1b2633}
   .s.by-rule{border-left-color:var(--rule)} .s.by-ai{border-left-color:var(--ai)} .s.by-manual{border-left-color:var(--manual)}
-  .cb{flex:none;width:18px;height:18px;margin-top:4px;padding:0;border:1.5px solid #3a3f47;border-radius:5px;background:transparent}
+  .cb{flex:none;width:22px;height:22px;margin-top:3px;padding:0;border:1.5px solid #3a3f47;border-radius:5px;background:transparent}
+  .cb:focus-visible{outline:2px solid var(--keep);outline-offset:2px}
   .s:hover .cb{border-color:var(--mute)}
   .s:not(.cut) .cb:hover{border-color:var(--manual);background:rgba(229,72,77,.14)}
   .s.cut .cb{background-color:var(--manual);border-color:var(--manual)}
@@ -57,12 +58,13 @@
   body.alt .w{cursor:cell}
   body.alt .w:hover{color:var(--manual);background:rgba(229,72,77,.16);text-decoration:line-through}
   .gap{display:inline-block;color:#565b63;font-size:11px;margin:0 2px} .gap:empty{display:none}
+  @media (max-width:760px){body{grid-template-columns:1fr;height:auto;min-height:100vh}aside{border-right:0;border-bottom:1px solid var(--line)}main{overflow:visible;padding-bottom:15vh}}
 </style>
 </head>
 <body>
 <aside>
   <video id="v" src="/media" controls preload="metadata"></video>
-  <div class="verr" id="verr" hidden>can't load video — check the "media" path in transcript.json</div>
+  <div class="verr" id="verr" hidden>can't load video — check the "media" path in transcript.json. <button type="button" id="vretry">Retry</button></div>
   <div class="nums">
     <div class="num"><b id="kept">–</b><span>kept duration</span></div>
     <div class="num"><b id="orig">–</b><span>original</span></div>
@@ -70,76 +72,102 @@
   </div>
   <div class="legend"><span><i style="background:var(--rule)"></i>rule</span><span><i style="background:var(--ai)"></i>AI</span><span><i style="background:var(--manual)"></i>you</span><span id="bycount"></span></div>
   <div class="bar">
-    <button id="preview" disabled>Preview final cut</button>
+    <button id="preview" disabled aria-pressed="false">Preview final cut</button>
     <button id="undo" disabled>Undo</button>
     <button class="save" id="save" title="save to transcript.json (⌘/Ctrl+S)">loading…</button>
   </div>
   <div class="bar"><label>Max pause <input id="pause" type="range" min="0.1" max="1.5" step="0.05" disabled> <b id="pv"></b>s</label></div>
   <div class="help">
     <kbd>space</kbd> play/pause · <kbd>j</kbd>/<kbd>k</kbd> next/prev · <kbd>x</kbd> cut/keep · <kbd>p</kbd> preview · <kbd>u</kbd>/<kbd>⌘Z</kbd> undo<br>
-    Click sentence: select + jump video · click <b>☐</b>: cut/keep · <kbd>⌥</kbd>+click word: cut just that word · double-click: play from here<br>
+    Click sentence: select + jump video · click <b>☐</b>: cut/keep · <kbd>⌥</kbd>+click a word, or press <kbd>c</kbd> on the highlighted word: cut just that word · double-click: play from here<br>
     Edits autosave to transcript.json. When done, run <kbd>talkcut.py render</kbd>.
   </div>
 </aside>
 <main id="list" role="list"></main>
 <script>
-let T, cur = 0, previewing = false, undo = [], saveTimer, pending = false, pauseSnap, saveGen = 0;
+let T, cur = 0, previewing = false, undo = [], saveTimer, pending = false, pauseSnap, saveGen = 0,
+    saving = false, saveAgain = false, lastNow, lastOnW, keptWs = [];
 const $ = s => document.querySelector(s), v = $('#v'), list = $('#list');
 const fmt = x => `${Math.floor(x/60)}:${String(Math.floor(x%60)).padStart(2,'0')}`;
 const dur = x => x >= 60 ? `${Math.floor(x/60)}m${String(Math.round(x%60)).padStart(2,'0')}s` : `${x.toFixed(1)}s`;
-list.innerHTML = '<div class="empty">loading transcript…</div>';
-fetch('/api/transcript').then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => { T = d; draw(); })
-  .catch(() => { list.innerHTML = '<div class="empty err">could not load transcript.json — restart review_server.py</div>'; $('#save').textContent = 'not loaded'; });
-v.onerror = () => $('#verr').hidden = false;
+const play = () => { const p = v.play(); if (p) p.catch(() => {}); };
 
-function snapshot() { return JSON.stringify(T.sentences.map(s => [s.keep, s.by, s.reason, s.words.map(w => w.keep !== false)])) + '|' + T.pause_keep; }
+list.innerHTML = '<div class="empty">loading transcript…</div>';
+fetch('/api/transcript').then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
+  if (!d || !Array.isArray(d.sentences)) throw 0;
+  if (typeof d.pause_keep !== 'number') d.pause_keep = .5;
+  d.sentences.forEach(s => { if (!Array.isArray(s.words)) s.words = []; });
+  T = d; draw();
+}).catch(err => { list.innerHTML = '<div class="empty err">could not load transcript.json — restart review_server.py</div>'; $('#save').textContent = 'not loaded'; console.error(err); });
+v.onerror = () => $('#verr').hidden = false;
+v.onended = () => { if (previewing) setPreview(false); };
+
+function snapshot() { return JSON.stringify(T.sentences.map(s => [s.keep, s.by, s.reason, (s.words || []).map(w => w ? [w.keep !== false, w.by] : null)])) + '|' + T.pause_keep; }
 function restore(snap) {
   const [arr, pause] = snap.split('|'); T.pause_keep = +pause;
-  JSON.parse(arr).forEach(([k, by, r, ws], i) => { const s = T.sentences[i]; s.keep = k; s.by = by; s.reason = r; ws.forEach((wk, j) => s.words[j].keep = wk); });
+  JSON.parse(arr).forEach(([k, by, r, ws], i) => { const s = T.sentences[i]; s.keep = k; s.by = by; s.reason = r;
+    ws.forEach((item, j) => { const w = s.words[j]; if (w && item) { w.keep = item[0]; w.by = item[1]; } }); });
 }
 function change(fn) { undo.push(snapshot()); if (undo.length > 200) undo.shift(); fn(); paint(); queueSave(); }
 
 function draw() {
-  $('#pause').value = T.pause_keep ?? .5;
-  $('#preview').disabled = $('#undo').disabled = $('#pause').disabled = false;
+  $('#pause').value = T.pause_keep;
+  $('#preview').disabled = $('#pause').disabled = !T.sentences.length;
   $('#save').textContent = 'loaded';
   list.innerHTML = '';
-  if (!T.sentences.length) { list.innerHTML = '<div class="empty">no sentences in transcript</div>'; return; }
+  if (!T.sentences.length) list.innerHTML = '<div class="empty">no sentences in transcript — check transcript.json</div>';
   T.sentences.forEach((s, idx) => {
     const el = document.createElement('div'); el.className = 's'; el.setAttribute('role', 'listitem');
+    el.title = 'click: jump here · double-click: play from here';
     const cb = document.createElement('button'); cb.type = 'button'; cb.className = 'cb';
+    cb.setAttribute('aria-label', 'cut sentence ' + fmt(s.start));
     cb.onclick = e => { e.stopPropagation(); select(idx, false); toggle(s); cb.blur(); };
     cb.ondblclick = e => e.stopPropagation();
     s.cb = cb; el.append(cb);
     const t = document.createElement('span'); t.className = 't'; t.textContent = fmt(s.start); t.title = 'jump to ' + fmt(s.start); el.append(t);
     const x = document.createElement('span'); x.className = 'x';
     s.words.forEach((w, i) => {
-      if (i) { const g = document.createElement('span'); g.className = 'gap'; g.dataset.gap = w.start - s.words[i-1].end; x.append(g); }
+      if (!w || typeof w.text !== 'string') { if (w) w.el = null; return; }
+      if (i && s.words[i - 1] && Number.isFinite(w.start) && Number.isFinite(s.words[i - 1].end)) {
+        const g = document.createElement('span'); g.className = 'gap'; g.dataset.gap = w.start - s.words[i - 1].end; x.append(g);
+      }
       const ws = document.createElement('span'); ws.className = 'w'; ws.textContent = w.text;
-      ws.onclick = e => { if (!e.altKey) return; e.stopPropagation(); change(() => { w.keep = w.keep === false; s.by = 'manual'; s.reason = s.reason || 'words edited'; }); };
+      ws.onclick = e => { if (!e.altKey) return; e.stopPropagation(); cutWord(s, w); };
       w.el = ws; x.append(ws);
     });
     el.append(x);
     const r = document.createElement('span'); r.className = 'r'; el.append(r); s.rel = r;
+    el._gaps = x.querySelectorAll('.gap');
     el.onclick = () => { select(idx, false); v.currentTime = s.start; };
-    el.ondblclick = e => { e.preventDefault(); select(idx, false); v.currentTime = s.start; v.play(); };
+    el.ondblclick = e => { e.preventDefault(); select(idx, false); v.currentTime = s.start; play(); };
     s.el = el; list.append(el);
   });
   T.orig = Math.max(...T.sentences.map(s => s.end), 0);
-  paint(); select(0, false);
+  paint();
+  if (T.sentences.length) select(0, false);
 }
 function toggle(s) { change(() => { s.keep = !s.keep; s.by = 'manual'; s.reason = s.keep ? '' : 'cut by you'; }); }
+function cutWord(s, w) {
+  if (!w) return;
+  change(() => { w.keep = w.keep === false; w.by = 'manual'; s.by = 'manual'; s.reason = s.reason || 'words edited'; });
+}
 function paint() {
   $('#pv').textContent = (+T.pause_keep).toFixed(2);
   $('#undo').disabled = !undo.length;
+  keptWs = []; // shared by keptDuration() and the preview skip logic
+  T.sentences.forEach(s => s.keep && s.words.forEach(w => w && w.keep !== false && keptWs.push(w)));
+  keptWs.sort((a, b) => a.start - b.start);
   const counts = { rule: 0, ai: 0, manual: 0 };
   T.sentences.forEach(s => {
-    s.el.className = 's' + (s.keep ? '' : ' cut') + (s.by ? ' by-' + s.by : '') + (s === T.sentences[cur] ? ' cur' : '');
+    const on = s === T.sentences[cur];
+    s.el.className = 's' + (s.keep ? '' : ' cut') + (s.by ? ' by-' + s.by : '') + (on ? ' cur' : '');
+    s.el.setAttribute('aria-current', on ? 'true' : 'false');
     s.cb.setAttribute('aria-pressed', String(!s.keep));
+    s.cb.setAttribute('aria-label', (s.keep ? 'cut' : 'restore') + ' sentence ' + fmt(s.start));
     s.cb.title = s.keep ? 'cut this sentence (x)' : 'restore this sentence (x)';
     s.rel.textContent = s.reason ? `${s.by ? s.by + ': ' : ''}${s.reason}` : '';
-    s.words.forEach(w => w.el.classList.toggle('wcut', w.keep === false && s.keep));
-    s.el.querySelectorAll('.gap').forEach(g => g.textContent = +g.dataset.gap > T.pause_keep ? `⏸${(+g.dataset.gap).toFixed(1)}` : '');
+    s.words.forEach(w => { if (w && w.el) w.el.classList.toggle('wcut', w.keep === false && s.keep); });
+    s.el._gaps.forEach(g => g.textContent = +g.dataset.gap > T.pause_keep ? `⏸${(+g.dataset.gap).toFixed(1)}` : '');
     if (!s.keep && s.by) counts[s.by] = (counts[s.by] || 0) + 1;
   });
   $('#kept').textContent = dur(keptDuration()); $('#orig').textContent = dur(T.orig);
@@ -148,31 +176,39 @@ function paint() {
 }
 // Mirrors render.py: kept words joined, gaps <= pause kept, longer gaps capped to pause.
 function keptDuration() {
-  const gap = +T.pause_keep, ws = [];
-  T.sentences.forEach(s => s.keep && s.words.forEach(w => w.keep !== false && ws.push(w)));
-  ws.sort((a, b) => a.start - b.start);
+  const gap = +T.pause_keep;
   let total = 0, prev = null;
-  for (const w of ws) { total += w.end - w.start; if (prev) total += Math.min(Math.max(w.start - prev.end, 0), gap); prev = w; }
-  return total + (ws.length ? gap : 0);
+  for (const w of keptWs) { total += w.end - w.start; if (prev) total += Math.min(Math.max(w.start - prev.end, 0), gap); prev = w; }
+  return total + (keptWs.length ? gap : 0);
 }
 function select(i, scroll = true) {
   if (!T.sentences.length) return;
   cur = Math.max(0, Math.min(T.sentences.length - 1, i)); paint();
-  if (scroll) T.sentences[cur].el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (scroll) reveal(T.sentences[cur].el);
+}
+function reveal(el) {
+  const box = list.scrollHeight > list.clientHeight + 2 ? list.getBoundingClientRect() : { top: 8, bottom: innerHeight - 8 };
+  const r = el.getBoundingClientRect();
+  if (r.top < box.top || r.bottom > box.bottom) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 function setSave(cls, msg) { const el = $('#save'); el.className = 'save' + (cls ? ' ' + cls : ''); el.textContent = msg; }
 function queueSave() { pending = true; saveGen++; setSave('dirty', 'unsaved…'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 800); }
 async function save() {
   if (!T) return;
+  if (saving) { saveAgain = true; return; }
+  saving = true;
   const g = saveGen;
   const body = JSON.stringify(T, (k, val) => (k === 'el' || k === 'rel' || k === 'cb' || k === 'orig') ? undefined : val, 2);
   try { const r = await fetch('/api/transcript', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-        if (r.ok) { if (g === saveGen) pending = false; setSave('', `saved ${new Date().toLocaleTimeString()}`); } else setSave('err', 'save failed — click to retry'); }
-  catch { setSave('err', 'save failed (server down?) — click to retry'); }
+        if (g !== saveGen) return; // a newer edit owns the status line
+        if (r.ok) { pending = false; setSave('', `saved ${new Date().toLocaleTimeString()}`); }
+        else setSave('err', 'save failed — click to retry'); }
+  catch { if (g === saveGen) setSave('err', 'save failed (server down?) — click to retry'); }
+  finally { saving = false; if (saveAgain) { saveAgain = false; save(); } }
 }
 addEventListener('beforeunload', e => { if (pending) { e.preventDefault(); e.returnValue = ''; } });
 function doUndo() { if (!undo.length) return; restore(undo.pop()); $('#pause').value = T.pause_keep; paint(); queueSave(); }
-function setPreview(on) { previewing = on; $('#preview').classList.toggle('on', on); $('#preview').textContent = on ? 'Stop preview' : 'Preview final cut'; if (on) v.play(); }
+function setPreview(on) { previewing = on; const b = $('#preview'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Stop preview' : 'Preview final cut'; if (on) play(); }
 
 $('#undo').onclick = doUndo;
 $('#preview').onclick = () => setPreview(!previewing);
@@ -184,30 +220,47 @@ addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); return doUndo(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === ' ') { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+  if (e.key === ' ') { e.preventDefault(); if (v.error) return; v.paused ? play() : v.pause(); }
   else if (e.key === 'j' && T?.sentences.length) { select(cur + 1); v.currentTime = T.sentences[cur].start; }
   else if (e.key === 'k' && T?.sentences.length) { select(cur - 1); v.currentTime = T.sentences[cur].start; }
   else if (e.key === 'x' && T?.sentences.length) toggle(T.sentences[cur]);
+  else if ((e.key === 'c' || e.key === 'C') && T?.sentences.length && lastOnW) {
+    const s = T.sentences.find(s => s.words.some(w => w.el === lastOnW));
+    const w = s && s.words.find(w => w.el === lastOnW);
+    if (s && w) cutWord(s, w);
+  }
   else if (e.key === 'u') doUndo();
   else if (e.key === 'p' && T) setPreview(!previewing);
 });
 addEventListener('keydown', e => { if (e.key === 'Alt') document.body.classList.add('alt'); });
 addEventListener('keyup', e => { if (e.key === 'Alt') document.body.classList.remove('alt'); });
 addEventListener('blur', () => document.body.classList.remove('alt'));
+addEventListener('visibilitychange', () => { if (document.hidden) document.body.classList.remove('alt'); });
+$('#vretry').onclick = () => { $('#verr').hidden = true; v.load(); };
 
-let lastNow;
+// index of the first kept word starting after t in the sorted keptWs list
+function nextKept(t) {
+  let lo = 0, hi = keptWs.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (keptWs[m].start > t) hi = m; else lo = m + 1; }
+  return lo;
+}
 v.ontimeupdate = () => {
   if (!T) return;
   const t = v.currentTime;
   const s = T.sentences.find(s => t >= s.start && t <= s.end + .3);
-  if (s && s !== lastNow) { lastNow?.el.classList.remove('now'); s.el.classList.add('now'); if (!v.paused) s.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); lastNow = s; }
-  T.sentences.forEach(x => x.words.forEach(w => w.el.classList.toggle('on', t >= w.start && t < w.end)));
+  if (s && s !== lastNow) { lastNow?.el.classList.remove('now'); s.el.classList.add('now'); if (!v.paused) reveal(s.el); lastNow = s; }
+  const w = s ? s.words.find(w => w && w.el && t >= w.start && t < w.end) : null;
+  const wel = w ? w.el : null;
+  if (wel !== lastOnW) { lastOnW?.classList.remove('on'); wel?.classList.add('on'); lastOnW = wel; }
   if (!previewing) return;
-  if (s && !s.keep) { const nx = T.sentences.find(x => x.start > s.start && x.keep); if (nx) v.currentTime = nx.start; else v.pause(); return; }
-  if (s) { const w = s.words.find(w => t >= w.start && t < w.end && w.keep === false); if (w) { v.currentTime = w.end; return; } }
-  // cap long pauses: jump ahead when inside a gap longer than pause_keep
-  const ws = s ? s.words : []; const i = ws.findIndex((w, k) => k && t > ws[k-1].end + T.pause_keep / 2 && t < w.start - T.pause_keep / 2);
-  if (i > 0) v.currentTime = ws[i].start - T.pause_keep / 2;
+  const i = nextKept(t), nx = keptWs[i];
+  if (s && !s.keep) { if (nx) v.currentTime = nx.start; else { setPreview(false); v.pause(); } return; }
+  if (w && w.keep === false) { v.currentTime = w.end; return; }
+  if (!w) { // inside a gap (within or between sentences): cap it at pause_keep; stop past the last kept word
+    if (!nx) { setPreview(false); v.pause(); return; }
+    const after = (keptWs[i - 1] ? keptWs[i - 1].end : 0) + T.pause_keep / 2;
+    if (t > after && t < nx.start - T.pause_keep / 2) v.currentTime = nx.start - T.pause_keep / 2;
+  }
 };
 </script>
 </body>
