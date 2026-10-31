@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Step 5: local review page. python3 review_server.py work/transcript.json [--port 8765]
-Open http://127.0.0.1:8765 : click a sentence to toggle keep/cut (cut = struck through), Alt+click a word to cut it,
-double-click to play from there, Cmd/Ctrl+S saves back to transcript.json. Listens on 127.0.0.1 only.
+Open http://127.0.0.1:8765 : click a sentence to select + jump the video, click its checkbox to cut/keep
+(cut = struck through), Alt+click a word to cut it, double-click to play from there, Cmd/Ctrl+S saves back
+to transcript.json. Listens on 127.0.0.1 only.
 """
 import argparse, json, mimetypes, os, re, shutil
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -18,17 +19,25 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *x):
         pass
 
-    def send(self, code, body, ctype="application/json; charset=utf-8"):
+    def send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         self.send_response(code); self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        self.send_header("Content-Length", str(len(body))); self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers(); self.wfile.write(body)
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
-            return self.send(200, (HERE / "review.html").read_bytes(), "text/html; charset=utf-8")
+            return self.send(200, (HERE / "review.html").read_bytes(), "text/html; charset=utf-8",
+                             {"Cache-Control": "no-store",
+                              "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self'; connect-src 'self'"})
         if self.path == "/api/transcript":
-            return self.send(200, TP.read_bytes())
+            return self.send(200, TP.read_bytes(), extra={"Cache-Control": "no-store"})
         if self.path == "/media":
-            return self.media(TP.parent / json.loads(TP.read_text(encoding="utf-8"))["media"])
+            f = TP.parent / json.loads(TP.read_text(encoding="utf-8"))["media"]
+            if not f.is_file():
+                return self.send(404, b'{"error":"media file not found"}')
+            return self.media(f)
         self.send(404, b"{}")
 
     def media(self, f):  # Range support so the video can seek
@@ -57,8 +66,11 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/api/transcript":
             return self.send(404, b"{}")
-        data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        assert "sentences" in data
+        try:
+            data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            assert "sentences" in data
+        except Exception:
+            return self.send(400, b'{"error":"bad transcript payload"}')
         shutil.copyfile(TP, TP.with_suffix(".bak.json"))
         tmp = TP.with_suffix(".tmp"); tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, TP)

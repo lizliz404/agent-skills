@@ -4,40 +4,65 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>talkcut · Review</title>
 <style>
-  :root{--bg:#0e0f11;--panel:#16181b;--fg:#e8e6e1;--mute:#7c7f86;--line:#26292e;--keep:#64a9e8;
+  :root{--bg:#0e0f11;--panel:#16181b;--panel2:#181c21;--fg:#e8e6e1;--mute:#9aa0a8;--line:#26292e;--keep:#64a9e8;
         --rule:#e0a43a;--ai:#a78bfa;--manual:#e5484d}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.75 -apple-system,"PingFang SC","Noto Sans CJK SC",sans-serif;display:grid;grid-template-columns:minmax(320px,40%) 1fr;height:100vh}
-  aside{padding:20px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:12px;overflow:auto}
-  video{width:100%;max-height:56vh;background:#000;border-radius:10px}
+  ::selection{background:#29415c}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2c3138;border-radius:5px;border:3px solid var(--bg)}
+  aside{padding:22px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px;overflow:auto}
+  video{width:100%;max-height:52vh;background:#000;border-radius:10px}
+  .verr{font-size:12px;color:var(--manual);margin-top:-6px}
   .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px}
+  button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px;transition:border-color .12s,background .12s}
   button:hover{border-color:var(--keep)} button.on{background:var(--keep);color:#06121f;border-color:var(--keep);font-weight:600}
+  button:disabled{opacity:.4;cursor:default} button:disabled:hover{border-color:var(--line)}
+  button:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--keep);outline-offset:2px}
   .nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
   .num{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
   .num b{display:block;font-size:20px;font-variant-numeric:tabular-nums} .num span{color:var(--mute);font-size:12px}
-  .legend{display:flex;gap:14px;font-size:12px;color:var(--mute)} .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  #kept{color:var(--keep)}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--mute);align-items:baseline}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  #bycount{margin-left:auto}
   label{font-size:13px;color:var(--mute)} input[type=range]{accent-color:var(--keep);vertical-align:middle}
-  .save{font-size:12px;color:var(--mute)}
+  .save{background:none;border:0;padding:2px 4px;font-size:12px;color:var(--mute);border-radius:4px}
+  .save:hover{color:var(--fg);border-color:transparent}
+  .save.dirty{color:var(--rule)} .save.err{color:var(--manual);text-decoration:underline;text-underline-offset:3px}
   kbd{font:11px ui-monospace,monospace;background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
-  .help{color:var(--mute);font-size:12px;line-height:2;margin-top:auto}
-  main{overflow-y:auto;padding:28px 36px 40vh}
-  .s{display:flex;gap:14px;padding:6px 10px 6px 12px;border-radius:8px;cursor:pointer;border-left:3px solid transparent;transition:background .12s}
-  .s:hover{background:var(--panel)} .s.cur{outline:1px solid #2f3a48} .s.now{background:#1b2633}
+  .help{color:var(--mute);font-size:12px;line-height:2;margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  main{overflow-y:auto;padding:24px 36px 40vh}
+  .empty{color:var(--mute);padding:48px 0;text-align:center} .empty.err{color:var(--manual)}
+  .s{display:flex;gap:10px;align-items:flex-start;padding:6px 12px;border-radius:8px;cursor:pointer;border-left:3px solid transparent;transition:background .12s;user-select:none}
+  .s:hover{background:var(--panel)} .s.cur{background:var(--panel2);outline:1px solid #394a5c;outline-offset:-1px} .s.now{background:#1b2633}
   .s.by-rule{border-left-color:var(--rule)} .s.by-ai{border-left-color:var(--ai)} .s.by-manual{border-left-color:var(--manual)}
-  .t{color:var(--mute);font:12px/2.2 ui-monospace,monospace;min-width:52px}
-  .x{flex:1} .r{font-size:12px;margin-left:8px;opacity:.9}
+  .cb{flex:none;width:18px;height:18px;margin-top:4px;padding:0;border:1.5px solid #3a3f47;border-radius:5px;background:transparent}
+  .s:hover .cb{border-color:var(--mute)}
+  .s:not(.cut) .cb:hover{border-color:var(--manual);background:rgba(229,72,77,.14)}
+  .s.cut .cb{background-color:var(--manual);border-color:var(--manual)}
+  .s.cut.by-rule .cb{background-color:var(--rule);border-color:var(--rule)}
+  .s.cut.by-ai .cb{background-color:var(--ai);border-color:var(--ai)}
+  .s.cut .cb{background-image:linear-gradient(45deg,transparent 42%,#0b0c0e 42%,#0b0c0e 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,#0b0c0e 42%,#0b0c0e 58%,transparent 58%)}
+  .s.cut .cb:hover{filter:brightness(1.25)}
+  .t{flex:none;color:var(--mute);font:12px/2.2 ui-monospace,monospace;min-width:52px}
+  .s:hover .t{color:var(--keep)} .s.cut .t{color:#5a5f66}
+  .x{flex:1;min-width:0}
+  .r{flex:none;max-width:34%;font-size:11.5px;line-height:1.7;margin:2px 0 0 10px;text-align:right}
   .by-rule .r{color:var(--rule)} .by-ai .r{color:var(--ai)} .by-manual .r{color:var(--manual)}
   .s.cut .x>.w{color:var(--mute);text-decoration:line-through;text-decoration-thickness:2px}
   .by-rule.cut .x>.w{text-decoration-color:var(--rule)} .by-ai.cut .x>.w{text-decoration-color:var(--ai)} .by-manual.cut .x>.w{text-decoration-color:var(--manual)}
   .w.wcut{text-decoration:line-through;text-decoration-color:var(--ai);color:var(--mute)}
   .w.on{color:var(--keep)}
-  .gap{display:inline-block;color:#4a4e55;font-size:11px;margin:0 2px} .gap:empty{display:none}
+  body.alt .w{cursor:cell}
+  body.alt .w:hover{color:var(--manual);background:rgba(229,72,77,.16);text-decoration:line-through}
+  .gap{display:inline-block;color:#565b63;font-size:11px;margin:0 2px} .gap:empty{display:none}
 </style>
 </head>
 <body>
 <aside>
   <video id="v" src="/media" controls preload="metadata"></video>
+  <div class="verr" id="verr" hidden>can't load video — check the "media" path in transcript.json</div>
   <div class="nums">
     <div class="num"><b id="kept">–</b><span>kept duration</span></div>
     <div class="num"><b id="orig">–</b><span>original</span></div>
@@ -45,24 +70,27 @@
   </div>
   <div class="legend"><span><i style="background:var(--rule)"></i>rule</span><span><i style="background:var(--ai)"></i>AI</span><span><i style="background:var(--manual)"></i>you</span><span id="bycount"></span></div>
   <div class="bar">
-    <button id="preview">Preview final cut</button>
-    <button id="undo">Undo</button>
-    <span class="save" id="save">loaded</span>
+    <button id="preview" disabled>Preview final cut</button>
+    <button id="undo" disabled>Undo</button>
+    <button class="save" id="save" title="save to transcript.json (⌘/Ctrl+S)">loading…</button>
   </div>
-  <div class="bar"><label>Max pause <input id="pause" type="range" min="0.1" max="1.5" step="0.05"> <b id="pv"></b>s</label></div>
+  <div class="bar"><label>Max pause <input id="pause" type="range" min="0.1" max="1.5" step="0.05" disabled> <b id="pv"></b>s</label></div>
   <div class="help">
-    <kbd>space</kbd> play/pause · <kbd>j</kbd>/<kbd>k</kbd> next/prev sentence · <kbd>x</kbd> toggle cut · <kbd>p</kbd> preview · <kbd>u</kbd> or <kbd>⌘Z</kbd> undo<br>
-    Click a sentence: select + toggle cut · Alt/⌥+click a word: cut just that word · Double-click: play from here<br>
+    <kbd>space</kbd> play/pause · <kbd>j</kbd>/<kbd>k</kbd> next/prev · <kbd>x</kbd> cut/keep · <kbd>p</kbd> preview · <kbd>u</kbd>/<kbd>⌘Z</kbd> undo<br>
+    Click sentence: select + jump video · click <b>☐</b>: cut/keep · <kbd>⌥</kbd>+click word: cut just that word · double-click: play from here<br>
     Edits autosave to transcript.json. When done, run <kbd>talkcut.py render</kbd>.
   </div>
 </aside>
-<main id="list"></main>
+<main id="list" role="list"></main>
 <script>
-let T, cur = 0, previewing = false, undo = [], saveTimer;
+let T, cur = 0, previewing = false, undo = [], saveTimer, pending = false, pauseSnap, saveGen = 0;
 const $ = s => document.querySelector(s), v = $('#v'), list = $('#list');
 const fmt = x => `${Math.floor(x/60)}:${String(Math.floor(x%60)).padStart(2,'0')}`;
 const dur = x => x >= 60 ? `${Math.floor(x/60)}m${String(Math.round(x%60)).padStart(2,'0')}s` : `${x.toFixed(1)}s`;
-fetch('/api/transcript').then(r => r.json()).then(d => { T = d; draw(); });
+list.innerHTML = '<div class="empty">loading transcript…</div>';
+fetch('/api/transcript').then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => { T = d; draw(); })
+  .catch(() => { list.innerHTML = '<div class="empty err">could not load transcript.json — restart review_server.py</div>'; $('#save').textContent = 'not loaded'; });
+v.onerror = () => $('#verr').hidden = false;
 
 function snapshot() { return JSON.stringify(T.sentences.map(s => [s.keep, s.by, s.reason, s.words.map(w => w.keep !== false)])) + '|' + T.pause_keep; }
 function restore(snap) {
@@ -73,9 +101,17 @@ function change(fn) { undo.push(snapshot()); if (undo.length > 200) undo.shift()
 
 function draw() {
   $('#pause').value = T.pause_keep ?? .5;
+  $('#preview').disabled = $('#undo').disabled = $('#pause').disabled = false;
+  $('#save').textContent = 'loaded';
   list.innerHTML = '';
+  if (!T.sentences.length) { list.innerHTML = '<div class="empty">no sentences in transcript</div>'; return; }
   T.sentences.forEach((s, idx) => {
-    const el = document.createElement('div'); el.className = 's';
+    const el = document.createElement('div'); el.className = 's'; el.setAttribute('role', 'listitem');
+    const cb = document.createElement('button'); cb.type = 'button'; cb.className = 'cb';
+    cb.onclick = e => { e.stopPropagation(); select(idx, false); toggle(s); cb.blur(); };
+    cb.ondblclick = e => e.stopPropagation();
+    s.cb = cb; el.append(cb);
+    const t = document.createElement('span'); t.className = 't'; t.textContent = fmt(s.start); t.title = 'jump to ' + fmt(s.start); el.append(t);
     const x = document.createElement('span'); x.className = 'x';
     s.words.forEach((w, i) => {
       if (i) { const g = document.createElement('span'); g.className = 'gap'; g.dataset.gap = w.start - s.words[i-1].end; x.append(g); }
@@ -83,10 +119,10 @@ function draw() {
       ws.onclick = e => { if (!e.altKey) return; e.stopPropagation(); change(() => { w.keep = w.keep === false; s.by = 'manual'; s.reason = s.reason || 'words edited'; }); };
       w.el = ws; x.append(ws);
     });
-    const r = document.createElement('span'); r.className = 'r'; x.append(r); s.rel = r;
-    el.innerHTML = `<span class="t">${fmt(s.start)}</span>`; el.append(x);
-    el.onclick = () => { select(idx); toggle(s); };
-    el.ondblclick = e => { e.preventDefault(); toggle(s); v.currentTime = s.start; v.play(); };
+    el.append(x);
+    const r = document.createElement('span'); r.className = 'r'; el.append(r); s.rel = r;
+    el.onclick = () => { select(idx, false); v.currentTime = s.start; };
+    el.ondblclick = e => { e.preventDefault(); select(idx, false); v.currentTime = s.start; v.play(); };
     s.el = el; list.append(el);
   });
   T.orig = Math.max(...T.sentences.map(s => s.end), 0);
@@ -95,9 +131,12 @@ function draw() {
 function toggle(s) { change(() => { s.keep = !s.keep; s.by = 'manual'; s.reason = s.keep ? '' : 'cut by you'; }); }
 function paint() {
   $('#pv').textContent = (+T.pause_keep).toFixed(2);
+  $('#undo').disabled = !undo.length;
   const counts = { rule: 0, ai: 0, manual: 0 };
   T.sentences.forEach(s => {
     s.el.className = 's' + (s.keep ? '' : ' cut') + (s.by ? ' by-' + s.by : '') + (s === T.sentences[cur] ? ' cur' : '');
+    s.cb.setAttribute('aria-pressed', String(!s.keep));
+    s.cb.title = s.keep ? 'cut this sentence (x)' : 'restore this sentence (x)';
     s.rel.textContent = s.reason ? `${s.by ? s.by + ': ' : ''}${s.reason}` : '';
     s.words.forEach(w => w.el.classList.toggle('wcut', w.keep === false && s.keep));
     s.el.querySelectorAll('.gap').forEach(g => g.textContent = +g.dataset.gap > T.pause_keep ? `⏸${(+g.dataset.gap).toFixed(1)}` : '');
@@ -117,38 +156,48 @@ function keptDuration() {
   return total + (ws.length ? gap : 0);
 }
 function select(i, scroll = true) {
+  if (!T.sentences.length) return;
   cur = Math.max(0, Math.min(T.sentences.length - 1, i)); paint();
   if (scroll) T.sentences[cur].el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
-function queueSave() { $('#save').textContent = 'unsaved…'; clearTimeout(saveTimer); saveTimer = setTimeout(save, 800); }
+function setSave(cls, msg) { const el = $('#save'); el.className = 'save' + (cls ? ' ' + cls : ''); el.textContent = msg; }
+function queueSave() { pending = true; saveGen++; setSave('dirty', 'unsaved…'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 800); }
 async function save() {
-  const body = JSON.stringify(T, (k, val) => (k === 'el' || k === 'rel' || k === 'orig') ? undefined : val, 2);
+  if (!T) return;
+  const g = saveGen;
+  const body = JSON.stringify(T, (k, val) => (k === 'el' || k === 'rel' || k === 'cb' || k === 'orig') ? undefined : val, 2);
   try { const r = await fetch('/api/transcript', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-        $('#save').textContent = r.ok ? `saved ${new Date().toLocaleTimeString()}` : 'save failed'; }
-  catch { $('#save').textContent = 'save failed (server down?)'; }
+        if (r.ok) { if (g === saveGen) pending = false; setSave('', `saved ${new Date().toLocaleTimeString()}`); } else setSave('err', 'save failed — click to retry'); }
+  catch { setSave('err', 'save failed (server down?) — click to retry'); }
 }
+addEventListener('beforeunload', e => { if (pending) { e.preventDefault(); e.returnValue = ''; } });
 function doUndo() { if (!undo.length) return; restore(undo.pop()); $('#pause').value = T.pause_keep; paint(); queueSave(); }
 function setPreview(on) { previewing = on; $('#preview').classList.toggle('on', on); $('#preview').textContent = on ? 'Stop preview' : 'Preview final cut'; if (on) v.play(); }
 
 $('#undo').onclick = doUndo;
 $('#preview').onclick = () => setPreview(!previewing);
-$('#pause').oninput = e => { T.pause_keep = +e.target.value; paint(); };
-$('#pause').onchange = e => { const val = +e.target.value; change(() => T.pause_keep = val); };
+$('#save').onclick = save;
+$('#pause').oninput = e => { if (pauseSnap === undefined) pauseSnap = snapshot(); T.pause_keep = +e.target.value; paint(); };
+$('#pause').onchange = () => { if (pauseSnap !== undefined) { undo.push(pauseSnap); if (undo.length > 200) undo.shift(); pauseSnap = undefined; } paint(); queueSave(); };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); return doUndo(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === ' ') { e.preventDefault(); v.paused ? v.play() : v.pause(); }
-  else if (e.key === 'j') { select(cur + 1); v.currentTime = T.sentences[cur].start; }
-  else if (e.key === 'k') { select(cur - 1); v.currentTime = T.sentences[cur].start; }
-  else if (e.key === 'x') toggle(T.sentences[cur]);
+  else if (e.key === 'j' && T?.sentences.length) { select(cur + 1); v.currentTime = T.sentences[cur].start; }
+  else if (e.key === 'k' && T?.sentences.length) { select(cur - 1); v.currentTime = T.sentences[cur].start; }
+  else if (e.key === 'x' && T?.sentences.length) toggle(T.sentences[cur]);
   else if (e.key === 'u') doUndo();
-  else if (e.key === 'p') setPreview(!previewing);
+  else if (e.key === 'p' && T) setPreview(!previewing);
 });
+addEventListener('keydown', e => { if (e.key === 'Alt') document.body.classList.add('alt'); });
+addEventListener('keyup', e => { if (e.key === 'Alt') document.body.classList.remove('alt'); });
+addEventListener('blur', () => document.body.classList.remove('alt'));
 
 let lastNow;
 v.ontimeupdate = () => {
+  if (!T) return;
   const t = v.currentTime;
   const s = T.sentences.find(s => t >= s.start && t <= s.end + .3);
   if (s && s !== lastNow) { lastNow?.el.classList.remove('now'); s.el.classList.add('now'); if (!v.paused) s.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); lastNow = s; }
