@@ -34,9 +34,9 @@ orchestrator window      one agent whose only jobs are:
 receipts on disk         ~/radar-run/fleet/*.md + status.log + git history
 ```
 
-There is no "my fleet vs your sessions" — hc's registry is machine-wide, so the
-watchdog sees every registered terminal (the user's own ad-hoc sessions
-included). That's a feature: nothing on the machine goes dark silently.
+hc's registry is machine-wide: observation includes the user's ad-hoc sessions.
+Visibility is not ownership. Route, reuse, interrupt or kill only workers assigned
+to this shift; unrelated sessions are context, not spare capacity.
 
 ## Quick start
 
@@ -51,19 +51,86 @@ tmux new-session -d -s fleet-watch \
    EXCLUDE='$FLEET_BOSS' \
    ~/.agents/skills/fleet-orch/scripts/fleet-watch.sh"
 
-# 3) spawn a worker with a narrow, receipt-backed task
+# 3) record the task card below BEFORE dispatch; then start its worker
 hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
-#   - task must name ONE deliverable, the receipt path, and the report-back line:
-#     "…回执写 ~/radar-run/fleet/<name>.md；完成后 hc send $FLEET_BOSS 报一句"
-#   - `devin --` needs the `--` separator before the prompt; without it exit 2
+# Task: one deliverable + original request/source + authority/limits + evidence
+# + receipt path + boss identity; first ACK, then done|blocked|failed|dropped.
+# Before every send/report: hc ls, match identity/cwd, not just yesterday's tN.
+# A verified target in done state needs hc send --force for a required receipt.
 ```
+
+## Start a shift — wire the loop before calling it proactive
+
+1. Read the current owner request and existing task/receipt state. Record the
+   usable outcome, scope/forbidden actions, runtime/budget constraints and next
+   checkpoint. Carry original wording/links; routing must not invent product
+   requirements or an implementation plan. Workers investigate; boss verifies.
+2. Run `hc ls`; bind the boss and owned workers by name/cwd/current address.
+   Check the actual watcher process, target, log freshness and notification
+   mode. A tmux name or old `status.log` alone is not a health check.
+3. Read `references/proactive-intake.md`. Name the configured sources and mode;
+   run `intake-scan.sh` with those sources once, check exit/errors and cursors,
+   then assess pending rows. No sources/adapter/schedule = intake **off**, not
+   "nothing new". First sight seeds EOF; it does not handle tonight's backlog.
+   Read the current shift's explicit instructions separately so they aren't lost.
+4. Use the existing task briefs/receipts as task cards (no second control plane).
+   Store each before dispatch, with the fields below. Read and dedupe existing
+   cards before spawning. One writable scope has one owner; hand off before
+   reassigning. Never create branches/worktrees without explicit authorization.
+5. Keep intake in the boss cycle below. If no independent wake is configured,
+   record "intake runs only while boss is awake"; a liveness watcher does not
+   make a dormant boss proactive or restart it after a crash.
+
+### Task card — small inline context, full evidence on disk
+
+```text
+task/thread key (stable brief path, issue/PR URL or intake id):
+source locator + short exact request; explicit / inferred + permitted actions:
+owner name + cwd + current hc address; writable scope; related task keys:
+deliverable + acceptance evidence + stop/budget boundary:
+state + last substantive evidence/time + next check:
+receipt/full-log links + pending question/original reply channel:
+```
+
+A terminal address is a transport handle, not a task ID. Inline this small card
+and the new event; spill long logs/reports to path + line range/continuation.
+Every receipt links back to its source/card and related work. Follow those links
+before asking Liz to repeat old context; do not load the full fleet history.
+
+## Boss cycle — on a wake, receipt, owner message, or due checkpoint
+
+1. **Batch:** collect unseen events since the previous check. Dedupe by task key
+   and evidence/revision, not the count of `working→done` transitions. Preserve
+   distinct owner instructions and failures; one noisy task must not hide others.
+2. **Route:** same thread + unchanged authority → send the original delta to its
+   owning worker, not a second worker or a fresh implementation plan. Check
+   `hc ls` first and record delivery/ACK; a failed send is pending, not handled.
+   Scope change → boss assessment; Liz's direct stop/redirect takes precedence.
+   This is a manual fast path, not an implemented subscription engine.
+3. **Intake:** run the configured incremental scan, inspect errors, decide every
+   `new` row (`ignore|attach|propose|do` + reason/source). Review waiting rows
+   when their condition changes. Absence of a ledger/run is an intake gap.
+4. **Judge:** inspect due workers against their deliverable and last substantive
+   evidence; use the progress rule below. For a blocker, relay one concrete
+   question verbatim to the owner in the original channel. Keep other work moving;
+   park/release this slot instead of paying for repeated empty checks.
+5. **Accept:** a terminal `done` is only a claim. Read its receipt and run the
+   relevant acceptance path. Record **verified** or the exact unmet check; route
+   failures back within scope. A local draft is not shipped, a URL 200 is not
+   usable behavior. Don't resend an already accepted result after another wake.
+6. **Continue or park:** reuse owned capacity only for valuable authorized work.
+   Log the next event/checkpoint or "executable queue empty". Tell Liz only a
+   useful verified result, an actionable question, or a material failure; batch
+   routine transitions into the canonical summary. No new work just to stay busy.
 
 ## The disciplines (what actually makes it work)
 
 **Task shape**
 - One worker = one narrow, verifiable deliverable. "窄、可交卷" — never open-ended.
 - Every task names its receipt file and its verification method (test count, DB query, commit hash).
-- Finished-but-alive workers are capacity: reuse them for the next narrow task instead of idling.
+- Budget/model choices follow the current shift request, never a previous shift's mix. Dispatch all sub-work via `hc run --name <n> --cwd <dir> --bg pi`; no built-in subagents or pane+agent-start bypass. Stop and hand off an old writer before switching runtime; do not pay for two workers on the same files. Layout may group existing terminals without changing Liz's focus.
+- Screenshots and recording are not implied by fleet setup; Liz handles captures herself in this shift. Do not manufacture activity for appearances.
+- Finished-but-alive **owned** workers are capacity: reuse them for the next valuable authorized task; no executable work means park, not invent work.
 - Worker context >85% → spawn fresh rather than overload; a cheap new window beats a truncated worker.
 
 **Trust model — notifications are claims, not truth**
@@ -87,13 +154,14 @@ hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
 Full design: `references/proactive-intake.md`. The loop in five lines:
 - Sources: project-context repos, GitHub issues, session transcripts. `scripts/intake-scan.sh` is the free rule gate (new lines only, Liz-authored only, intent markers, dedupe) and appends `new` rows to `$FLEET_DIR/intake.md`.
 - The boss gives each row one decision with one-line reason: `ignore` / `attach` (forward verbatim to the worker that owns that thread) / `propose` / `do`.
-- Found text is inferred, never authorization. Inferred items may run without asking only in the low-risk lane: read-only research or diagnosis, reproduction, drafts on a new branch or in receipts. Commit to main, merge, prod, delete, send, spend → always `propose`.
+- Found text is inferred, never authorization. New/unreviewed sources start `observe` (assess/propose only); only Liz enables `auto-low-risk` for a named source/category. Even then `do` is limited to read-only research/diagnosis, safe reproduction, drafts in receipts (no branches). Commit, push, merge, prod, delete, send, spend → always `propose`.
 - `do` = normal narrow task with receipt; report `done|blocked|failed|dropped`. A speculative attempt that finds nothing valuable ends `dropped` in the ledger and never pings Liz.
 - `propose` rows go to the morning summary's owner-decision list, one line + source link. Revalidate a parked row before resuming; Liz's stop ends it for good. Only Liz widens the `do` lane.
 
 **Progress, not just liveness**
-- A worker `working` with an unchanged `hc read` tail for ~2 poll snapshots (or 30 min of background work with no new output) gets one boss look: real progress, looping, or drifted from the deliverable? Redirect or stop with a one-line reason. No extra watchdog agent until this manual check misses something.
-- Workers push long commands to the background (tmux/`&` + log) so they can still read new `hc send` messages; a 30-minute background job with no result is reported `blocked`, not left silent.
+- Each task card names its next check and last substantive evidence (test result, changed artifact, data delta, or external job checkpoint). Unchanged output for two poll snapshots is a reason to inspect, not proof of a stall; changing prose is not proof of progress. At the due check compare evidence with the deliverable; record continue / redirect / blocked / stop + reason and next check.
+- Workers background commands expected to take more than ~5 seconds using native async/tmux + known log/status/stop handles; this is a convention, not a harness-enforced timer. Don't block the boss on a worker/build. After 30 minutes without substantive progress, inspect job/log/checkpoint and report `blocked` with the exact dependency unless a justified long-job checkpoint is recorded. Do not blindly kill a healthy collector/server.
+- On two failed attempts, stop repeating the same fix or question: isolate the cause, change the route within authorization or hand off a concrete blocker. Preserve evidence before replacement. The script sees liveness/transitions; only this boss check judges drift. An independent semantic watchdog remains unimplemented.
 
 **Production safety patterns**
 - SQLite `ADD COLUMN` is metadata-only: run it during active writes with `busy_timeout=600000` — it slots between write transactions in ms, no downtime, and lock-timeout failure is a no-op not corruption.
@@ -102,6 +170,7 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 - Long-running collectors: tmux, documented command, checkpointed progress, no auto-merge/delivery — staging then explicit gate.
 
 **Reporting to the user**
+- ACK once for an explicit task. While working, routine progress stays in receipts/logs. For IM-style updates aim for one short result + usable link + necessary next step (≤100 words); details live in the receipt. `dropped` speculative work stays silent, but a failed explicit task is not silently dropped. Questions retain the worker's exact wording; attach relevant options/context without substituting a status dump.
 - Lead with the owner’s outcome in plain language: can they use it now, what remains broken, what should happen next, and what genuinely needs their decision. Put receipt paths, hashes and technical details below the key messages. Do not use agent/commit counts as a substitute for value or acceptance.
 - Separate verified live delivery, local-only changes, diagnostic findings (not fixes), failed/unstarted work, and running services. Attribute older measurements and report verification gaps. Never say "running" without checking it.
 - After an overnight shift, the orchestrator owns one canonical morning summary directly beside the bedtime task instructions: `~/thinkerdoerprompter/notes/daily/YY/MM-DD-morning-summary.md` (real repo `~/dev/repos/thinkerdoerprompter/`; e.g. bedtime `26/11-01.md`, following morning `26/11-02-morning-summary.md`). Do not create a separate operations/morning tree. Update the same file during the day; do not create competing BOSS-SUMMARY/MORNING-REVIEW files. Existing historical files remain linked evidence; no bulk relocation. A `writing/` 24h recap is an editorial draft, not this operational summary.
@@ -122,24 +191,40 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 
 The mechanism is model-agnostic; everything lives in files.
 
-1. Retarget: set `FLEET_BOSS` (or add a second `hc send` in `notify()`) to the new
-   orchestrator's hc address, restart fleet-watch.
-2. Brief the new boss: this file + `status.log` (full event history) + receipts
-   dir + `hc ls` for live state. That is ~90% of orchestrator context.
-3. The hard part transfers intact: judgment of what counts as done, which tasks
-   are safe to dispatch, when to stop and ask the owner.
+1. Save the current task cards/receipts, pending deliveries/questions, last
+   accepted evidence, source modes/cursors, watcher target and next checkpoints.
+   Keep owner decisions separate from executable work; no full-history dump.
+2. Run `hc ls` to identify the replacement boss, then retarget the existing
+   watcher through its normal launch configuration. Have one reporting owner,
+   not two bosses sending duplicate results. Don't patch `notify()` per shift.
+3. The new boss reads this skill and the small handoff packet, follows evidence
+   links as needed, checks real processes/Git/external effects, and revalidates
+   authority before resuming. A human-stopped task stays stopped; no replay of
+   commits, sends or production writes merely because a receipt is missing.
+4. Confirm the new boss has received the packet and a due-check event can reach
+   it before the old boss parks. Files preserve state; they do not provide
+   cloud persistence, crash recovery or an external semantic watchdog.
 
 ## Utility scripts
 
 **fleet-watch.sh**: the polling watchdog (parameterized via env vars above).
 Execute it under tmux. It watches hc terminal statuses, optional progress.json
 globs, tmux sessions, and receipt file counts; notifies on transitions only;
-logs everything to `status.log` including periodic disk-usage snapshots.
+logs everything to `status.log` including periodic disk-usage snapshots. Use
+`FLEET_NOTIFY=0` during live conversation/filming so routine transitions stay in
+logs instead of interrupting Liz; the coordinator still inspects real failures.
+Always validate the current boss against `hc ls`, never send into a recovery shell.
 
 **intake-scan.sh**: stage-1 gate for proactive intake (env: `INTAKE_REPOS`,
-`INTAKE_GH`, `INTAKE_LOGS`, see header). No model, no actions, safe to rerun:
-`tmux new-session -d -s intake 'while :; do ./intake-scan.sh; sleep 900; done'`.
-`test-intake-scan.sh` is its offline test.
+`INTAKE_GH`, `INTAKE_LOGS`, `INTAKE_PI_SESSIONS`, see header). Raw JSONL is
+rejected from `INTAKE_LOGS`; Pi sessions go through `scripts/intake-pi.py`,
+which keeps only real `role:user` text (hc/AO envelopes, quoted relays,
+attachments and fences dropped) into restricted `Liz:` logs — first sight of
+a source only sets its cursor, never backscans history. No model, no actions,
+safe to rerun. Invoke the absolute script path in the boss cycle with explicitly
+configured sources; unattended scanning needs an actual named scheduler/log,
+status/stop handles and a boss wake/checkpoint. The scanner only appends `new`;
+it neither assesses nor dispatches. `test-intake-scan.sh` is its offline test.
 
 Progress judgement is a boss duty (see "Progress, not just liveness"), not a
 separate model watchdog yet. See `references/dsh-design-notes.md` and
