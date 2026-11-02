@@ -186,6 +186,8 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 | `hc run devin "task"` exits 2 | use `devin -- "task"` — prompt goes after `--` |
 | rclone/D1 audits lying | `rclone lsjson` needs `--no-modtime`; check credential scope before claiming access |
 | Empty permission/registry claims | verify authoritative output (ssh+pragma, git ls-remote), not worker prose |
+| Upstream storm stalls workers in `error` | run `worker-unnudge.sh` (error-state nudges with cooldown); a persistent outage is the boss's runtime/handoff call, not infinite nudging |
+| Killing a worker kills the services it spawned | before interrupt/kill check its child procs and tmux; anything meant to outlive the worker gets its own tmux/systemd, never the agent pane |
 
 ## Handoff — any agent can take over as boss
 
@@ -214,6 +216,15 @@ logs everything to `status.log` including periodic disk-usage snapshots. Use
 `FLEET_NOTIFY=0` during live conversation/filming so routine transitions stay in
 logs instead of interrupting Liz; the coordinator still inspects real failures.
 Always validate the current boss against `hc ls`, never send into a recovery shell.
+
+**worker-unnudge.sh**: external self-heal loop for upstream fault storms —
+DSH §6's "re-check transient external failures until normal", an infra-fault
+watchdog, not a progress judge (progress stays the boss's job). Polls hc for
+live workers in `error`, sends one retry nudge per worker per cooldown, logs
+`AUTO-NUDGE` to status.log. Run it in tmux when the upstream is flaky. It
+cannot verify recovery — during a sustained outage the boss switches runtime
+or hands the task off (2026-11-03: devin `-d` workers took over stalled pi
+tasks, pi workers wrote `*-handoff.md`); don't let the loop hide a real outage.
 
 **intake-scan.sh**: stage-1 gate for proactive intake (env: `INTAKE_REPOS`,
 `INTAKE_GH`, `INTAKE_LOGS`, `INTAKE_PI_SESSIONS`, see header). Raw JSONL is
