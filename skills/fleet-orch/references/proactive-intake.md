@@ -13,9 +13,9 @@ Kept deliberately small: one scanner script, one ledger file, the boss judges.
 
 | Source | What counts as a candidate | Read how |
 |---|---|---|
-| Project-context repo(s) | new commits since last scan that add TODO/待办/之后/回头/要做/should/need to lines | `git log -p` since stored hash |
-| GitHub issues | open issues/comments by Liz (or assigned to her bot) updated since last scan | `gh issue list --search` |
-| Session transcripts / chat logs | lines by Liz with intent markers ("帮我/记得/回头/顺便/有空/should we/todo") | grep over configured globs, new lines only |
+| Project-context repo(s) | lines added in Liz's own commits since last scan that carry an intent marker | `git log -p --author` since stored hash |
+| GitHub issues | open issues Liz authored, updated since last scan (issue title; comments are read when the boss assesses) | `gh issue list --search author:` |
+| Session transcripts / chat logs | lines starting with Liz's speaker tag that carry an intent marker | grep over configured globs, new lines only |
 
 Configure with env (see `scripts/intake-scan.sh` header). Anything else stays
 out until a real miss shows it is needed.
@@ -23,7 +23,9 @@ out until a real miss shows it is needed.
 ## 2. Stage 1 — rule gate (no model)
 
 `intake-scan.sh` is the gate: cursor per source, marker regex, author filter
-(Liz only — bots and peers never create candidates), dedupe by hash. It appends
+(Liz only — bots and peers never create candidates), dedupe by hash,
+token-like strings redacted. A source's first run only sets its cursor, so
+old backlog never floods the ledger. Test: `scripts/test-intake-scan.sh`. It appends
 `new` rows to `$FLEET_DIR/intake.md`. No match → nothing costs a model call.
 This is DSH's Gate: "deterministic admission first" (docs/002 L79-85).
 
@@ -85,5 +87,6 @@ Append-only edits by the boss; the scanner only appends `new`.
 - Scanner is free; model cost = one boss pass over a handful of rows.
 - False positives are expected; they cost one `ignore` line. False negatives
   (missed casual remarks) are accepted until a miss is reported.
-- Start every new source in propose-only for a week; widen `do` only after
-  reviewing the ledger with Liz — DSH's observe→auto progression.
+- The low-risk lane is the whole `do` scope. It is never widened by the fleet
+  itself; only Liz can add a category after reviewing the ledger — DSH's
+  observe→auto progression, with the human holding the switch.

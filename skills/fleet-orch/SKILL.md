@@ -89,7 +89,7 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 - The boss gives each row one decision with one-line reason: `ignore` / `attach` (forward verbatim to the worker that owns that thread) / `propose` / `do`.
 - Found text is inferred, never authorization. Inferred items may run without asking only in the low-risk lane: read-only research or diagnosis, reproduction, drafts on a new branch or in receipts. Commit to main, merge, prod, delete, send, spend → always `propose`.
 - `do` = normal narrow task with receipt; report `done|blocked|failed|dropped`. A speculative attempt that finds nothing valuable ends `dropped` in the ledger and never pings Liz.
-- `propose` rows go to the morning summary's owner-decision list, one line + source link. Revalidate a parked row before resuming; Liz's stop ends it for good. New sources start propose-only; widen `do` only after reviewing the ledger with Liz.
+- `propose` rows go to the morning summary's owner-decision list, one line + source link. Revalidate a parked row before resuming; Liz's stop ends it for good. Only Liz widens the `do` lane.
 
 **Progress, not just liveness**
 - A worker `working` with an unchanged `hc read` tail for ~2 poll snapshots (or 30 min of background work with no new output) gets one boss look: real progress, looping, or drifted from the deliverable? Redirect or stop with a one-line reason. No extra watchdog agent until this manual check misses something.
@@ -137,8 +137,9 @@ globs, tmux sessions, and receipt file counts; notifies on transitions only;
 logs everything to `status.log` including periodic disk-usage snapshots.
 
 **intake-scan.sh**: stage-1 gate for proactive intake (env: `INTAKE_REPOS`,
-`INTAKE_GH`, `INTAKE_LOGS`, see header). Run it each boss cycle or from the
-fleet-watch tmux every 15 min; it never calls a model and never acts.
+`INTAKE_GH`, `INTAKE_LOGS`, see header). No model, no actions, safe to rerun:
+`tmux new-session -d -s intake 'while :; do ./intake-scan.sh; sleep 900; done'`.
+`test-intake-scan.sh` is its offline test.
 
 Progress judgement is a boss duty (see "Progress, not just liveness"), not a
 separate model watchdog yet. See `references/dsh-design-notes.md` and

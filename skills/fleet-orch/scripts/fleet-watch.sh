@@ -72,7 +72,8 @@ for t in json.load(sys.stdin).get('terminals',[]):
   tmux ls 2>/dev/null | cut -d: -f1 | while read -r s; do echo "tmux:$s	live"; done >> "$now"
 
   # 4) receipt file count (workers drop *.md reports here)
-  n=$(ls "$FLEET"/*.md 2>/dev/null | wc -l)
+  # intake.md is the intake ledger, not a worker receipt
+  n=$(find "$FLEET" -maxdepth 1 -name '*.md' ! -name intake.md | wc -l)
   echo "reports	$n" >> "$now"
 
   # diff against last snapshot — notify on transitions only
@@ -82,7 +83,7 @@ for t in json.load(sys.stdin).get('terminals',[]):
     old=$(grep -P "^${k}\t" "$STATE" 2>/dev/null | cut -f2-)
     [ "$v" = "$old" ] && continue
     case "$k" in
-      t*)
+      t[0-9]*)
         if [[ "$v" == blocked || ( "$old" == working && "$v" =~ ^(done|idle)$ ) || "$v" == dead ]]; then
           notify "$k: ${old:-none} -> $v"
         fi ;;
@@ -91,12 +92,17 @@ for t in json.load(sys.stdin).get('terminals',[]):
         [ "$os" != "$ns" ] && notify "${k#job:} status: ${os:-?} -> $ns" ;;
       tmux:*)
         [ -z "$old" ] && [ "$v" = live ] && notify "tmux session up: ${k#tmux:}"
-        [ "$old" = live ] && [ -z "$v" ] && notify "tmux session died: ${k#tmux:}" ;;
+        ;;
       reports)
         [ "${old:-0}" != "$v" ] && [ -n "$old" ] && \
-          notify "new report in fleet/ ($(ls -t "$FLEET"/*.md 2>/dev/null | head -1 | xargs basename))" ;;
+          notify "new report in fleet/ ($(find "$FLEET" -maxdepth 1 -name '*.md' ! -name intake.md -printf '%T@ %f\n' | sort -rn | head -1 | cut -d' ' -f2-))" ;;
     esac
   done < "$now"
+
+  # tmux sessions that were live last cycle and are gone now
+  grep -P '^tmux:' "$STATE" | cut -f1 | while read -r k; do
+    grep -qP "^${k}\t" "$now" || notify "tmux session died: ${k#tmux:}"
+  done
 
   cp "$now" "$STATE"
 
