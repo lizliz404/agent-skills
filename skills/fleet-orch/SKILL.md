@@ -6,7 +6,9 @@ description: >-
   polling watchdog, verify receipts before reporting, keep long jobs running,
   and hand off the orchestrator role to any agent. Use when the user asks to run
   several agents in parallel, keep workers busy overnight, monitor herdr-core
-  (hc) terminals, or set up fleet/watchdog coordination.
+  (hc) terminals, set up fleet/watchdog coordination, or run proactive intake
+  (pick up things the owner mentioned in notes, issues or chat, do the
+  low-risk ones, propose the rest, report done).
 ---
 
 # Fleet Orch
@@ -81,6 +83,18 @@ hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
 - When the executable queue is genuinely empty, say so. Do not manufacture busywork.
 - Commit/push only when explicitly authorized for this task; a prior shift’s permission does not transfer. Report tracked/untracked work and `@{u}..HEAD` separately; never auto-push as queue hygiene.
 
+**Proactive intake — mentioned → handled → reported (from DSH, 2026-11)**
+Full design: `references/proactive-intake.md`. The loop in five lines:
+- Sources: project-context repos, GitHub issues, session transcripts. `scripts/intake-scan.sh` is the free rule gate (new lines only, Liz-authored only, intent markers, dedupe) and appends `new` rows to `$FLEET_DIR/intake.md`.
+- The boss gives each row one decision with one-line reason: `ignore` / `attach` (forward verbatim to the worker that owns that thread) / `propose` / `do`.
+- Found text is inferred, never authorization. Inferred items may run without asking only in the low-risk lane: read-only research or diagnosis, reproduction, drafts on a new branch or in receipts. Commit to main, merge, prod, delete, send, spend → always `propose`.
+- `do` = normal narrow task with receipt; report `done|blocked|failed|dropped`. A speculative attempt that finds nothing valuable ends `dropped` in the ledger and never pings Liz.
+- `propose` rows go to the morning summary's owner-decision list, one line + source link. Revalidate a parked row before resuming; Liz's stop ends it for good. New sources start propose-only; widen `do` only after reviewing the ledger with Liz.
+
+**Progress, not just liveness**
+- A worker `working` with an unchanged `hc read` tail for ~2 poll snapshots (or 30 min of background work with no new output) gets one boss look: real progress, looping, or drifted from the deliverable? Redirect or stop with a one-line reason. No extra watchdog agent until this manual check misses something.
+- Workers push long commands to the background (tmux/`&` + log) so they can still read new `hc send` messages; a 30-minute background job with no result is reported `blocked`, not left silent.
+
 **Production safety patterns**
 - SQLite `ADD COLUMN` is metadata-only: run it during active writes with `busy_timeout=600000` — it slots between write transactions in ms, no downtime, and lock-timeout failure is a no-op not corruption.
 - Any production write: backup first (`.backup` is online-safe), WHERE-guard irreversible fields (`brand IS NULL OR brand=''`), verify row counts after, write evidence dir.
@@ -122,8 +136,10 @@ Execute it under tmux. It watches hc terminal statuses, optional progress.json
 globs, tmux sessions, and receipt file counts; notifies on transitions only;
 logs everything to `status.log` including periodic disk-usage snapshots.
 
-Open suggestion, not implemented: DSH runs a model-based watchdog that also
-judges whether workers make real progress or drift off-target. A future
-fleet-watch could add an agent pass over `hc read` output for the same check —
-worthwhile only if transition alerts start missing stalled-but-alive workers.
-See `references/dsh-design-notes.md` for the design this came from.
+**intake-scan.sh**: stage-1 gate for proactive intake (env: `INTAKE_REPOS`,
+`INTAKE_GH`, `INTAKE_LOGS`, see header). Run it each boss cycle or from the
+fleet-watch tmux every 15 min; it never calls a model and never acts.
+
+Progress judgement is a boss duty (see "Progress, not just liveness"), not a
+separate model watchdog yet. See `references/dsh-design-notes.md` and
+`references/proactive-intake.md` for the DSH design this came from.

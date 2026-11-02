@@ -72,3 +72,15 @@ remaining retrieval gaps and the writing plan. 0xcherry's X close-reading
 (《十分钟精读 DSH Super Agent：从 Paper 到 PRD》) was not fully retrievable —
 X/知乎/微博 all wall content behind login or anti-bot; treat it as
 third-party color only, never load-bearing.
+
+## Second pass (2026-11-02): proactivity
+
+Liz's real goal is a proactive fleet, so the second pass took DSH's intake
+pipeline, not just its worker etiquette: Source → deterministic Gate →
+model Assessment → accept/attach/ignore, with `observe` (log "would accept")
+before `auto`. Mapped to `references/proactive-intake.md` +
+`scripts/intake-scan.sh`. Also adopted: progress judgement as a boss duty,
+background long commands, revalidation before resume, permanent stop.
+Not adopted (yet): resident Router process, SQLite ledger, subscription
+routing engine, cloud/daemon split, Inline&Spill — see
+`fleet-orch-feedback.md` in the DSH research folder for reasons.
