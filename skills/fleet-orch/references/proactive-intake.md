@@ -45,6 +45,12 @@ Boss judges intent against context (project state, existing receipts); one line
 of reason per decision. Like DSH's "would accept" log in `observe` mode,
 `propose` rows are the audit trail that later justifies widening `do`.
 
+`do` must clear a three-fact bar (DSH `prompts/admission.md`), all three
+required: the target is clearly this project; Liz expressed intent to change
+something; and the direction is settled enough that one small concrete step
+can be executed now. Vague approval or visual/reaction feedback does not
+authorize design work — without all three, the row is `propose`.
+
 ## 4. Authorization — who said it decides what may happen
 
 - **Explicit**: Liz asked the boss/worker directly in its own session. Normal task.

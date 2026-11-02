@@ -84,3 +84,24 @@ background long commands, revalidation before resume, permanent stop.
 Not adopted (yet): resident Router process, SQLite ledger, subscription
 routing engine, cloud/daemon split, Inline&Spill — see
 `fleet-orch-feedback.md` in the DSH research folder for reasons.
+
+## Third pass (2026-11-03): burn it into behavior
+
+Earlier passes were doc-level; Liz's verdict was "反哺过但效果不显著". This
+pass made the remaining principles executable and absorbed the night's live
+evidence (Hanzilla 503 storm, AUTO-NUDGE loop, intake wired in tmux):
+
+- `scripts/worker-unnudge.sh` — §6's external control loop, infra-fault half:
+  nudge live `error` workers on a cooldown; proven ad-hoc as
+  `/tmp/pi-unnudge.sh` tonight, hardened with cooldown/max and a message
+  that doesn't claim unverified upstream health.
+- `do` admission three-fact bar in proactive-intake §3 (`prompts/admission.md`).
+- Route: shared-scope delta fans out to all owning workers (many-to-many
+  subscription, §3.2).
+- Receipt = the dense async channel (§4.2): PR-description density, not a
+  status line.
+- Pitfall: killing a worker kills services it spawned (seen as subprocess
+  exit 143 tonight); long-lived services get their own tmux/systemd.
+- Drift fix: `~/.agents/skills/fleet-orch` was a real dir edited at 00:02
+  while the repo lagged — now a symlink to `~/dev/agent-skills` like every
+  other skill, so live == SOT.

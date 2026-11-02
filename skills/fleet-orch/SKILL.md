@@ -106,7 +106,10 @@ before asking Liz to repeat old context; do not load the full fleet history.
    owning worker, not a second worker or a fresh implementation plan. Check
    `hc ls` first and record delivery/ACK; a failed send is pending, not handled.
    Scope change → boss assessment; Liz's direct stop/redirect takes precedence.
-   This is a manual fast path, not an implemented subscription engine.
+   A scope shared by several workers gets the delta fanned out to all of them
+   (many-to-many subscription), so overlapping workers see each other's moves
+   without peer messaging. This is a manual fast path, not an implemented
+   subscription engine.
 3. **Intake:** run the configured incremental scan, inspect errors, decide every
    `new` row (`ignore|attach|propose|do` + reason/source). Review waiting rows
    when their condition changes. Absence of a ledger/run is an intake gap.
@@ -172,6 +175,7 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 **Reporting to the user**
 - ACK once for an explicit task. While working, routine progress stays in receipts/logs. For IM-style updates aim for one short result + usable link + necessary next step (≤100 words); details live in the receipt. `dropped` speculative work stays silent, but a failed explicit task is not silently dropped. Questions retain the worker's exact wording; attach relevant options/context without substituting a status dump.
 - Lead with the owner’s outcome in plain language: can they use it now, what remains broken, what should happen next, and what genuinely needs their decision. Put receipt paths, hashes and technical details below the key messages. Do not use agent/commit counts as a substitute for value or acceptance.
+- The receipt is the dense channel (DSH's async-channel rule): write it at PR-description density — problem, what changed, verification output, evidence links. A status line is not a receipt.
 - Separate verified live delivery, local-only changes, diagnostic findings (not fixes), failed/unstarted work, and running services. Attribute older measurements and report verification gaps. Never say "running" without checking it.
 - After an overnight shift, the orchestrator owns one canonical morning summary directly beside the bedtime task instructions: `~/thinkerdoerprompter/notes/daily/YY/MM-DD-morning-summary.md` (real repo `~/dev/repos/thinkerdoerprompter/`; e.g. bedtime `26/11-01.md`, following morning `26/11-02-morning-summary.md`). Do not create a separate operations/morning tree. Update the same file during the day; do not create competing BOSS-SUMMARY/MORNING-REVIEW files. Existing historical files remain linked evidence; no bulk relocation. A `writing/` 24h recap is an editorial draft, not this operational summary.
 - Structure: 30-second conclusion → usable deliveries → incomplete/failed/unstarted work → ordered next actions and acceptance checks → minimal owner decisions → evidence links. Verify receipt presence, local Git state, relevant live behavior and any numerical totals before writing; exclude contradictory totals rather than repeating them.
@@ -186,8 +190,6 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 | `hc run devin "task"` exits 2 | use `devin -- "task"` — prompt goes after `--` |
 | rclone/D1 audits lying | `rclone lsjson` needs `--no-modtime`; check credential scope before claiming access |
 | Empty permission/registry claims | verify authoritative output (ssh+pragma, git ls-remote), not worker prose |
-| Upstream storm stalls workers in `error` | run `worker-unnudge.sh` (error-state nudges with cooldown); a persistent outage is the boss's runtime/handoff call, not infinite nudging |
-| Killing a worker kills the services it spawned | before interrupt/kill check its child procs and tmux; anything meant to outlive the worker gets its own tmux/systemd, never the agent pane |
 
 ## Handoff — any agent can take over as boss
 
@@ -216,15 +218,6 @@ logs everything to `status.log` including periodic disk-usage snapshots. Use
 `FLEET_NOTIFY=0` during live conversation/filming so routine transitions stay in
 logs instead of interrupting Liz; the coordinator still inspects real failures.
 Always validate the current boss against `hc ls`, never send into a recovery shell.
-
-**worker-unnudge.sh**: external self-heal loop for upstream fault storms —
-DSH §6's "re-check transient external failures until normal", an infra-fault
-watchdog, not a progress judge (progress stays the boss's job). Polls hc for
-live workers in `error`, sends one retry nudge per worker per cooldown, logs
-`AUTO-NUDGE` to status.log. Run it in tmux when the upstream is flaky. It
-cannot verify recovery — during a sustained outage the boss switches runtime
-or hands the task off (2026-11-03: devin `-d` workers took over stalled pi
-tasks, pi workers wrote `*-handoff.md`); don't let the loop hide a real outage.
 
 **intake-scan.sh**: stage-1 gate for proactive intake (env: `INTAKE_REPOS`,
 `INTAKE_GH`, `INTAKE_LOGS`, `INTAKE_PI_SESSIONS`, see header). Raw JSONL is
