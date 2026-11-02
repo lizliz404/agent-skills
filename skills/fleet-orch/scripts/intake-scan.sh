@@ -11,7 +11,8 @@
 #   INTAKE_GIT_AUTHOR  only commits whose author matches (default Liz|lizliz)
 #   INTAKE_GH          owner/repo list; open issues Liz authored, updated since last scan
 #   INTAKE_GH_USER     her GitHub login (default lizliz404)
-#   INTAKE_LOGS        transcript/chat file globs; new lines only
+#   INTAKE_LOGS        trusted plain-text transcript globs, NOT raw JSONL
+#   INTAKE_PI_SESSIONS Pi JSONL paths/globs; user-text adapter, first sight EOF only
 #   INTAKE_LOG_AUTHOR  regex marking a line as hers (default '^\s*(Liz|user)\s*[:：>]')
 #   INTAKE_MARKERS     intent regex (default below)
 set -u
@@ -20,8 +21,15 @@ CUR=$FLEET/intake-cursors; LEDGER=$FLEET/intake.md
 MARK=${INTAKE_MARKERS:-'TODO|待办|回头|之后再|顺便|记得|帮我|要做|有空|得改|should (we|i)\b|need to|todo:'}
 LOGAUTH=${INTAKE_LOG_AUTHOR:-'^\s*(Liz|user)\s*[:：>]'}
 MAX=50
+umask 077
 mkdir -p "$CUR"
+chmod 700 "$CUR"
 exec 9>"$CUR/.lock"; flock -n 9 || { echo "intake-scan: already running"; exit 0; }
+# Convert only the configured Pi sources; stdout contains file paths, not bodies.
+pi_logs=
+if [ -n "${INTAKE_PI_SESSIONS:-}" ]; then
+  pi_logs=$(python3 "$(dirname "$0")/intake-pi.py") || exit 1
+fi
 [ -f "$LEDGER" ] || printf '| id | seen | source | quote | link | state | decision/why | receipt |\n|---|---|---|---|---|---|---|---|\n' > "$LEDGER"
 now=$(date '+%F %H:%M')
 
@@ -67,9 +75,10 @@ for g in ${INTAKE_GH:-}; do
   echo "$stamp" > "$key"
 done
 
-for glob in ${INTAKE_LOGS:-}; do
+for glob in ${INTAKE_LOGS:-} $pi_logs; do
   for f in $glob; do
     [ -f "$f" ] || continue
+    case "$f" in *.jsonl) echo 'intake-scan: raw JSONL rejected; use INTAKE_PI_SESSIONS' >&2; continue ;; esac
     key=$CUR/log-$(printf '%s' "$f" | md5sum | cut -c1-12)
     size=$(wc -l < "$f"); off=$(cat "$key" 2>/dev/null || echo "")
     if [ -n "$off" ]; then
@@ -81,4 +90,5 @@ for glob in ${INTAKE_LOGS:-}; do
   done
 done
 
+chmod 600 "$LEDGER"
 echo "intake-scan: $(grep -c '| new |' "$LEDGER") new row(s) pending in $LEDGER"

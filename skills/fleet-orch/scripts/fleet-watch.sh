@@ -10,8 +10,9 @@
 # Run it in tmux so it survives: tmux new-session -d -s fleet-watch ./fleet-watch.sh
 #
 # Env:
-#   FLEET_BOSS      hc address that receives fleet-notify messages (required-ish; default t14)
+#   FLEET_BOSS      hc name/address receiving notifications (default t14)
 #   FLEET_DIR       dir holding status.log / notify-state.txt / *.md receipts (default ~/radar-run/fleet)
+#   FLEET_NOTIFY    0 = log only, no messages typed into the user conversation
 #   WATCH_PROGRESS  glob of progress.json files to poll (default none)
 #   EXCLUDE         space-separated hc addresses to skip (default: the boss itself)
 #   POLL_SECS       seconds between cycles (default 5)
@@ -43,7 +44,17 @@ in_exclude() { case " $EXCLUDE " in *" $1 "*) return 0;; esac; return 1; }
 
 notify() {
   echo "$(date '+%m-%d %H:%M:%S') NOTIFY $1" >> "$LOG"
-  hc send "$BOSS" "fleet-notify: $1" >/dev/null 2>&1
+  [ "${FLEET_NOTIFY:-1}" = 0 ] && return 0
+  # Check the live registry first: yesterday's boss may now be a recovery shell.
+  local target
+  target=$(hc ls --json 2>/dev/null | python3 -c '
+import json, sys
+for terminal in json.load(sys.stdin).get("terminals", []):
+    if sys.argv[1] in (terminal.get("address"), terminal.get("name")) and terminal.get("agent") not in (None, "zsh", "bash", "fish", "nu"):
+        print(terminal["address"])
+        break
+' "$BOSS")
+  [ -n "$target" ] && hc send --force "$target" "fleet-notify: $1" >/dev/null 2>&1
 }
 
 while true; do
