@@ -31,7 +31,7 @@ fleet-watch.sh           tmux bash loop: poll → diff → on transition
 orchestrator window      one agent whose only jobs are:
       │                  decompose → dispatch → VERIFY → report to the user
       ▼
-receipts on disk         ~/radar-run/fleet/*.md + status.log + git history
+receipts on disk         ~/fleet-orch/*.md + status.log + git history
 ```
 
 hc's registry is machine-wide: observation includes the user's ad-hoc sessions.
@@ -42,7 +42,7 @@ to this shift; unrelated sessions are context, not spare capacity.
 
 ```bash
 # 1) pick a receipts dir and a boss address (the hc terminal you orchestrate from)
-export FLEET_DIR=~/radar-run/fleet FLEET_BOSS=t14
+export FLEET_DIR=~/fleet-orch FLEET_BOSS=t14
 
 # 2) start the watchdog
 tmux new-session -d -s fleet-watch \

@@ -3,7 +3,7 @@
 # window on state transitions, append every event to status.log.
 #
 # Usage:
-#   FLEET_BOSS=t14 FLEET_DIR=~/radar-run/fleet \
+#   FLEET_BOSS=t14 FLEET_DIR=~/fleet-orch \
 #   WATCH_PROGRESS='/home/liz/radar-run/*/progress.json' \
 #   EXCLUDE='t14 t19' ./fleet-watch.sh
 #
@@ -11,7 +11,7 @@
 #
 # Env:
 #   FLEET_BOSS      hc name/address receiving notifications (default t14)
-#   FLEET_DIR       dir holding status.log / notify-state.txt / *.md receipts (default ~/radar-run/fleet)
+#   FLEET_DIR       dir holding status.log / notify-state.txt / *.md receipts (default ~/fleet-orch)
 #   FLEET_NOTIFY    0 = log only, no messages typed into the user conversation
 #   WATCH_PROGRESS  glob of progress.json files to poll (default none)
 #   EXCLUDE         space-separated hc addresses to skip (default: the boss itself)
@@ -28,7 +28,7 @@
 
 set -u
 BOSS=${FLEET_BOSS:-t14}
-FLEET=${FLEET_DIR:-$HOME/radar-run/fleet}
+FLEET=${FLEET_DIR:-$HOME/fleet-orch}
 POLL=${POLL_SECS:-5}
 SNAP=${SNAP_SECS:-600}
 EXCLUDE=${EXCLUDE:-$BOSS}

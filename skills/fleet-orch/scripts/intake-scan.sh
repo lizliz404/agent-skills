@@ -6,7 +6,7 @@
 # (no backlog flood). Quotes are redacted for token-like strings.
 #
 # Env (all optional; unset source = skipped):
-#   FLEET_DIR          ledger + cursors (default ~/radar-run/fleet)
+#   FLEET_DIR          ledger + cursors (default ~/fleet-orch)
 #   INTAKE_REPOS       git repo paths, space-separated (e.g. project-context)
 #   INTAKE_GIT_AUTHOR  only commits whose author matches (default Liz|lizliz)
 #   INTAKE_GH          owner/repo list; open issues Liz authored, updated since last scan
@@ -16,7 +16,7 @@
 #   INTAKE_LOG_AUTHOR  regex marking a line as hers (default '^\s*(Liz|user)\s*[:：>]')
 #   INTAKE_MARKERS     intent regex (default below)
 set -u
-FLEET=${FLEET_DIR:-$HOME/radar-run/fleet}
+FLEET=${FLEET_DIR:-$HOME/fleet-orch}
 CUR=$FLEET/intake-cursors; LEDGER=$FLEET/intake.md
 MARK=${INTAKE_MARKERS:-'TODO|待办|回头|之后再|顺便|记得|帮我|要做|有空|得改|should (we|i)\b|need to|todo:'}
 LOGAUTH=${INTAKE_LOG_AUTHOR:-'^\s*(Liz|user)\s*[:：>]'}

@@ -18,7 +18,7 @@
 #   NUDGE_COOLDOWN  min seconds between nudges to the same worker (default 300)
 #   NUDGE_MAX       stop nudging a worker after this many sends (default 20)
 #   POLL_SECS       seconds between sweeps (default 60)
-#   FLEET_DIR       dir holding status.log / unnudge-state/ (default ~/radar-run/fleet)
+#   FLEET_DIR       dir holding status.log / unnudge-state/ (default ~/fleet-orch)
 #
 # Limits — this is liveness repair, not health verification:
 # - It acts on hc "error" state; it cannot tell whether the upstream has
@@ -29,7 +29,7 @@
 # - The default message claims nothing about upstream health; it only tells
 #   the worker to retry a transient failure.
 set -u
-FLEET=${FLEET_DIR:-$HOME/radar-run/fleet}
+FLEET=${FLEET_DIR:-$HOME/fleet-orch}
 LOG=$FLEET/status.log
 ST=$FLEET/unnudge-state
 AGENTS=${NUDGE_AGENTS:-pi}

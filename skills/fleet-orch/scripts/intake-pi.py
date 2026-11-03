@@ -74,7 +74,7 @@ def user_lines(entry):
 
 def main():
     os.umask(0o077)
-    fleet = Path(os.environ.get("FLEET_DIR", str(Path.home() / "radar-run/fleet")))
+    fleet = Path(os.environ.get("FLEET_DIR", str(Path.home() / "fleet-orch")))
     cursors, logs = fleet / "intake-cursors", fleet / "intake-pi"
     for directory in (cursors, logs):
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
