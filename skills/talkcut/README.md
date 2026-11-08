@@ -33,7 +33,7 @@ python3 scripts/talkcut.py status
 
 Stages are cached in `work/state.json` and the raw ASR result in `~/.cache/talkcut/asr/`, so completed stages/results can be reused. A cache is not an exactly-once billing guarantee after an ambiguous request failure. Full workflow, semantic cue contract and data formats: [SKILL.md](SKILL.md). Read [production lessons](references/production-lessons.md) before real-footage delivery.
 
-Chinese captions follow meaning and speech rhythm; 8–12 characters is a flexible guide, not a fixed splitter. Final burns require a reviewed cue plan, exact retained-text coverage and valid timing. Subtitle plan changes invalidate the driver cache. Run focused regressions with `python3 -m unittest discover -s scripts -p test_caption_plan.py`.
+Chinese captions follow meaning and speech rhythm; 6–14 characters is a flexible guide, not a fixed splitter. Final burns require a reviewed cue plan, exact retained-text coverage and valid timing. Subtitle plan changes invalidate the driver cache. Run focused regressions with `python3 -m unittest discover -s scripts -p test_caption_plan.py`.
 
 ## Validation status
 

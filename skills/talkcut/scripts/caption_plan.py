@@ -44,7 +44,7 @@ def map_plan(cut, plan):
                      'timing_estimated_within_token':(offset>0 and chars[offset-1]['sentence']==group[0]['sentence'] and chars[offset-1]['word']==group[0]['word']) or
                      (offset+len(phrase)<len(chars) and chars[offset+len(phrase)]['sentence']==group[-1]['sentence'] and chars[offset+len(phrase)]['word']==group[-1]['word'])})
         offset+=len(phrase)
-    return {'version':1,'segmentation':'agent-semantic','preferred_chars':[8,12],
+    return {'version':1,'segmentation':'agent-semantic','preferred_chars':[6,14],
             'canonical_sha256':hashlib.sha256(source.encode()).hexdigest(),'character_count':len(source),
             'coverage':'exact','semantic_review':'required','cues':cues}
 
