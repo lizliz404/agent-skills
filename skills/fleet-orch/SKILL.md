@@ -31,7 +31,7 @@ fleet-watch.sh           tmux bash loop: poll → diff → on transition
 orchestrator window      one agent whose only jobs are:
       │                  decompose → dispatch → VERIFY → report to the user
       ▼
-receipts on disk         ~/fleet-orch/*.md + status.log + git history
+receipts on disk         ~/fleet-orch/<session>/*.md + status.log + git history
 ```
 
 hc's registry is machine-wide: observation includes the user's ad-hoc sessions.
@@ -53,11 +53,22 @@ tmux new-session -d -s fleet-watch \
 
 # 3) record the task card below BEFORE dispatch; then start its worker
 hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
-# Task: one deliverable + original request/source + authority/limits + evidence
-# + receipt path + boss identity; first ACK, then done|blocked|failed|dropped.
+# Task: one deliverable + scope fence + original request/source + authority/limits
+# + evidence + receipt path + boss identity; first ACK, then done|blocked|failed|dropped.
 # Before every send/report: hc ls, match identity/cwd, not just yesterday's tN.
 # A verified target in done state needs hc send --force for a required receipt.
 ```
+
+## Artifact placement (standing rule)
+
+Everything a fleet dispatch produces goes under `~/fleet-orch/<session-dir>/`,
+not into the project it touched: task cards/briefs, prompts, receipts, memos,
+orchestration state, run logs of orchestrated jobs, worker evidence scratch.
+One session dir per shift (e.g. `night-1104/`; legacy consolidations use a
+semantic name like `legacy-radar-run/`). Name receipt files after the worker
+(`radar-w-auth.md`, `cfe-seo-receipt.md`). Project-owned artifacts stay in the
+project repo/workdir — a pipeline that must write beside its data keeps doing
+so; consolidate the records, not the runtime.
 
 ## Start a shift — wire the loop before calling it proactive
 
@@ -87,6 +98,8 @@ hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
 task/thread key (stable brief path, issue/PR URL or intake id):
 source locator + short exact request; explicit / inferred + permitted actions:
 owner name + cwd + current hc address; writable scope; related task keys:
+scope fence — dirs/domain the worker may touch + "fleet visibility is not a
+work queue" (see Worker contract):
 deliverable + acceptance evidence + stop/budget boundary:
 state + last substantive evidence/time + next check:
 receipt/full-log links + pending question/original reply channel:
@@ -135,6 +148,7 @@ before asking Liz to repeat old context; do not load the full fleet history.
 - Screenshots and recording are not implied by fleet setup; Liz handles captures herself in this shift. Do not manufacture activity for appearances.
 - Finished-but-alive **owned** workers are capacity: reuse them for the next valuable authorized task; no executable work means park, not invent work.
 - Worker context >85% → spawn fresh rather than overload; a cheap new window beats a truncated worker.
+- **Scope fence in every dispatch prompt** (learned 2026-11-05: a video covers worker idled mid-encode, saw `ai-handoff` in `hc ls`, and ran builds inside cfe-app). The fence has three parts, spelled out literally: (a) the one directory/domain the worker may read/write — named paths, everything else off-limits including sibling project repos; (b) `hc ls`, fleet notifications and other workers' task names are observability, never a work queue — do not "help" another line's task; (c) while a long command runs, poll its log/status or wait — idle time is not license to roam, and finishing the card means report+idle, not find-more-work. Foremen must stamp the same fence on their children.
 
 **Trust model — notifications are claims, not truth**
 - `working→done` means "worth inspecting", not "work is complete". It can also be a tool-call gap or a dead TUI.
@@ -150,6 +164,8 @@ before asking Liz to repeat old context; do not load the full fleet history.
 
 **Queue hygiene**
 - Keep a decision list for the owner separate from executable work. Idle workers must never guess at pending decisions.
+- Owner decisions and review items live in a durable per-shift queue file (`<shift>/queue.md`), not only in chat: verbatim ask + evidence links + suggested verdicts + state (open/answered/parked). Chat pings notify; the file is the store — it survives restarts and boss handoffs, and Liz clears it in batches. (Model: `references/armstrong-queue-model.md`.)
+- Distill owner corrections into durable config (this skill, AGENTS.md, task-card boilerplate), not just into that task's receipt. Success metric: fewer corrections per accepted change.
 - When the executable queue is genuinely empty, say so. Do not manufacture busywork.
 - Commit/push only when explicitly authorized for this task; a prior shift’s permission does not transfer. Report tracked/untracked work and `@{u}..HEAD` separately; never auto-push as queue hygiene.
 
@@ -176,6 +192,7 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 - ACK once for an explicit task. While working, routine progress stays in receipts/logs. For IM-style updates aim for one short result + usable link + necessary next step (≤100 words); details live in the receipt. `dropped` speculative work stays silent, but a failed explicit task is not silently dropped. Questions retain the worker's exact wording; attach relevant options/context without substituting a status dump.
 - Lead with the owner’s outcome in plain language: can they use it now, what remains broken, what should happen next, and what genuinely needs their decision. Put receipt paths, hashes and technical details below the key messages. Do not use agent/commit counts as a substitute for value or acceptance.
 - The receipt is the dense channel (DSH's async-channel rule): write it at PR-description density — problem, what changed, verification output, evidence links. A status line is not a receipt.
+- Receipts for anything Liz could look at — UI, layout, generated media — link a screenshot or clip path. Prose describes; pixels prove.
 - Separate verified live delivery, local-only changes, diagnostic findings (not fixes), failed/unstarted work, and running services. Attribute older measurements and report verification gaps. Never say "running" without checking it.
 - After an overnight shift, the orchestrator owns one canonical morning summary directly beside the bedtime task instructions: `~/thinkerdoerprompter/notes/daily/YY/MM-DD-morning-summary.md` (real repo `~/dev/repos/thinkerdoerprompter/`; e.g. bedtime `26/11-01.md`, following morning `26/11-02-morning-summary.md`). Do not create a separate operations/morning tree. Update the same file during the day; do not create competing BOSS-SUMMARY/MORNING-REVIEW files. Existing historical files remain linked evidence; no bulk relocation. A `writing/` 24h recap is an editorial draft, not this operational summary.
 - Structure: 30-second conclusion → usable deliveries → incomplete/failed/unstarted work → ordered next actions and acceptance checks → minimal owner decisions → evidence links. Verify receipt presence, local Git state, relevant live behavior and any numerical totals before writing; exclude contradictory totals rather than repeating them.
@@ -192,6 +209,7 @@ Full design: `references/proactive-intake.md`. The loop in five lines:
 | Empty permission/registry claims | verify authoritative output (ssh+pragma, git ls-remote), not worker prose |
 | Upstream storm stalls workers in `error` | run `worker-unnudge.sh` (error-state nudges with cooldown); a persistent outage is the boss's runtime/handoff call, not infinite nudging |
 | Killing a worker kills the services it spawned | before interrupt/kill check its child procs and tmux; anything meant to outlive the worker gets its own tmux/systemd, never the agent pane |
+| Worker wanders into another project when its long job idles | scope fence was missing from its prompt; add it, and tell it waiting = poll the job's log, not adopt tasks from `hc ls` |
 
 ## Handoff — any agent can take over as boss
 
