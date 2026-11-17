@@ -29,7 +29,10 @@ answer. Start at rung 1 and stop as soon as a rung fits.**
    Smarter Testing) and Semaphore (`sem-ai` CLI+MCP + `gha-to-semaphore`
    translator) are the two that built real agent control planes; GitHub's own
    answer is `gh-aw` agentic workflows compiled to Actions. See
-   `references/agent-native-ci.md`.
+   `references/agent-native-ci.md`. Source thread on keeping frontend CI under
+   2 minutes for agent loops is archived at
+   `references/2026-11-15-pontusab-frontend-ci-under-2-minutes.md` (+post
+   images in the same folder).
 4. **Full platform replacement — only for big teams or compliance.** GitLab
    (whole platform), Jenkins (self-owned, plugins), Tekton (K8s-native),
    Forgejo+Woodpecker (off-GitHub sovereignty). Migration cost eats the gains
