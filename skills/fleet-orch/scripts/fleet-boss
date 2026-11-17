@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""fleet-boss <域> —— 解析该域当前总包工头的 hc 地址。
+
+用法：
+  fleet-boss cfe | fleet-boss npd | fleet-boss shelf-radar | fleet-boss /home/liz/dev/cfe-app
+
+规则：域 = herdr space 名/目录 或 终端 cwd 路径段前缀；候选 = 该域下名字含
+boss 的存活终端；多个（新旧交替）取 created_ms 最新 = 当期包工头。
+换届自动跟随——卡片/提示词写 `hc send "$(fleet-boss cfe)" "..."`，
+不要再硬编码 tXXX（地址换届即 stale，t27j→t287 事故的根因）。
+无候选退出 1；herdr-app/hc 异常同样退出 1，调用方自行兜底。
+"""
+import json, os, subprocess, sys
+
+
+def sh(cmd, timeout=15):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def prefixes_for(arg):
+    """arg → cwd 前缀列表：herdr space 名/目录命中 + arg 本身。"""
+    out = []
+    try:
+        spaces = json.loads(sh(["herdr-app", "ls"])).get("spaces", [])
+    except Exception:
+        spaces = []
+    for s in spaces:
+        name = (s.get("name") or "").lower()
+        folder = (s.get("folder") or "").rstrip("/")
+        if arg in name or (folder and arg == folder.lower()):
+            if folder:
+                out.append(folder)
+    if "/" in arg:
+        out.append(os.path.abspath(os.path.expanduser(arg)).rstrip("/"))
+    else:
+        out.append(arg.lower())
+    # 去重保序
+    seen, res = set(), []
+    for p in out:
+        if p and p not in seen:
+            seen.add(p); res.append(p)
+    return res
+
+
+def _relhome(p):
+    """把路径归一成相对家目录：家目录以上的段（home/liz）不再参与域匹配。"""
+    home = os.path.expanduser("~").rstrip("/").lower()
+    p = (p or "").lower().rstrip("/")
+    if p == home:
+        return ""
+    if p.startswith(home + "/"):
+        return p[len(home) + 1:]
+    return p
+
+
+def cwd_match(cwd, prefixes):
+    cwd = _relhome(cwd)
+    for p in prefixes:
+        p = _relhome(p)
+        if not p:
+            continue
+        if "/" in p:
+            if cwd == p or cwd.startswith(p + "/"):
+                return True
+        elif any(seg.startswith(p) for seg in cwd.split("/") if seg):
+            return True
+    return False
+
+
+def main():
+    if len(sys.argv) != 2 or not sys.argv[1].strip():
+        print("usage: fleet-boss <域|路径>", file=sys.stderr)
+        return 2
+    arg = sys.argv[1].strip().lower()
+    prefixes = prefixes_for(arg)
+
+    try:
+        terms = json.loads(sh(["hc", "ls", "--json"])).get("terminals", [])
+    except Exception:
+        terms = []
+
+    cands = [t for t in terms
+             if cwd_match(t.get("cwd"), prefixes)
+             and "boss" in (t.get("name") or "").lower()]
+    if not cands:
+        print(f"fleet-boss: {sys.argv[1]} 域下无 *boss* 终端", file=sys.stderr)
+        return 1
+    if len(cands) == 1:
+        print(cands[0]["address"])
+        return 0
+
+    best, best_ms = cands[0]["address"], -1
+    for t in cands:
+        try:
+            d = json.loads(sh(["hc", "get", t["address"]]))
+            ms = d.get("created_ms") or 0
+        except Exception:
+            ms = 0
+        if ms > best_ms:
+            best, best_ms = t["address"], ms
+    print(best)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

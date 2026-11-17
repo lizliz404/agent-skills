@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""fleet-report: 把一句话汇报投给「当期」包工头——域解析失败也不会静默发空地址。
+
+为什么不用 `hc send "$(fleet-boss cfe)"`：fleet-boss 解析失败时返回空串，
+hc send "" 只吐 JSON 错误不退出非零，worker 以为报了、boss 什么都没收到。
+这里解析→兜底→发送→回显，失败就退非零，让 worker 的回执里留下"汇报失败"。
+
+用法：
+  fleet-report <域|路径> "<消息>"      正常汇报（域=space名/项目目录名，如 cfe）
+  fleet-report - "<消息>"              域由 cwd 自动推（取 cwd 各段试 fleet-boss）
+  fleet-report --dry-run <域> "<消息>" 只打印目标地址，不发
+  fleet-report --all "<消息>"          发给全舰队最新的 *boss* 终端（兜底口）
+
+解析顺序：fleet-boss <域> → 全域最新 *boss* 终端 → $FLEET_BOSS → 失败退 2。
+退出码：0 已投递；2 找不到收件人；3 hc send 失败（地址过期/终端已关）。
+"""
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HC = ["hc"]
+
+
+def sh(cmd, timeout=25):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def live_terms():
+    r = sh(HC + ["ls", "--json"])
+    if r is None or r.returncode != 0:
+        return []
+    try:
+        return json.loads(r.stdout).get("terminals", [])
+    except Exception:
+        return []
+
+
+def resolve_boss(domain):
+    r = sh([os.path.join(HERE, "fleet-boss"), domain])
+    if r is not None and r.returncode == 0 and (r.stdout or "").strip():
+        return r.stdout.strip(), f"fleet-boss {domain}"
+    return None, None
+
+
+def newest_boss(terms):
+    """兜底：全域名字含 boss 的活终端，取最后创建的（hc ls 不带 created_ms，逐年 hc get）。"""
+    cands = [t for t in terms if "boss" in (t.get("name") or "").lower()]
+    if not cands:
+        return None
+    best, best_ms = None, -1
+    for t in cands:
+        a = t.get("address")
+        r = sh(HC + ["get", a])
+        try:
+            ms = json.loads(r.stdout).get("created_ms") or 0 if r and r.returncode == 0 else 0
+        except Exception:
+            ms = 0
+        if ms > best_ms:
+            best, best_ms = a, ms
+    return best
+
+
+def domain_from_cwd():
+    cwd = os.getcwd()
+    for seg in reversed([s for s in cwd.split("/") if s]):
+        r = sh([os.path.join(HERE, "fleet-boss"), seg])
+        if r is not None and r.returncode == 0 and (r.stdout or "").strip():
+            return seg, r.stdout.strip()
+    return None, None
+
+
+def main(argv):
+    dry = "--dry-run" in argv
+    argv = [a for a in argv if a != "--dry-run"]
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if argv else 2
+    domain, rest = argv[0], argv[1:]
+    if not rest:
+        print("fleet-report: 缺消息正文", file=sys.stderr)
+        return 2
+    msg = " ".join(rest)
+
+    terms = live_terms()
+    addr, how = None, None
+    if domain == "--all":
+        addr, how = newest_boss(terms), "全域最新 *boss*"
+    elif domain == "-":
+        seg, a = domain_from_cwd()
+        if a:
+            addr, how = a, f"cwd 段 {seg}"
+    else:
+        addr, how = resolve_boss(domain)
+        if not addr:
+            addr, how = newest_boss(terms), f"兜底（{domain} 无 boss）"
+
+    if not addr:
+        env = os.environ.get("FLEET_BOSS")
+        if env:
+            addr, how = env, "env FLEET_BOSS"
+    if not addr:
+        print("fleet-report: 找不到收件人——域内没有名字含 boss 的活终端，也没有 FLEET_BOSS。"
+              "\n  看看 hc ls，或 fleet-report --all / 直接 hc send <地址>", file=sys.stderr)
+        return 2
+
+    alive = any(t.get("address") == addr for t in terms)
+    if dry:
+        print(f"to={addr} ({how}) alive={'y' if alive else 'n'} msg={msg[:80]}")
+        return 0
+
+    r = sh(HC + ["send", addr, msg])
+    if r is None or r.returncode != 0:
+        err = ((r.stderr or r.stdout) if r else "hc 调用失败").strip()[:200]
+        print(f"fleet-report: hc send {addr} 失败 rc={getattr(r, 'returncode', '?')}: {err}\n"
+              f"  地址可能已换届：重跑 fleet-boss {domain} 或 fleet-report --all", file=sys.stderr)
+        return 3
+    print(f"reported -> {addr} ({how})")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)

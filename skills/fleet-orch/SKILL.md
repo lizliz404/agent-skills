@@ -38,18 +38,34 @@ hc's registry is machine-wide: observation includes the user's ad-hoc sessions.
 Visibility is not ownership. Route, reuse, interrupt or kill only workers assigned
 to this shift; unrelated sessions are context, not spare capacity.
 
+## Toolbox (scripts/, ship-in-field versions live in ~/fleet-orch)
+
+- `watchdog.sh` — current watcher (flock single-instance, FLEET_BOSS_MAP cwd routing,
+  fleet.env contract). `fleet-watch.sh` is the older minimal loop.
+- `fleet-guard.py` — per-round patrol: spawn-without-bypass-flag, stall (screen
+  fingerprint unchanged), silent death alerts; watcher runs it each cycle.
+- `fleet-spawn` — dispatch wrapper: bypass flag + herdr.space label; `--model` probes
+  the channel with a real 8-token call and refuses dead routes (prints fallbacks).
+- `fleet-boss <domain>` — resolve the current boss terminal for a domain by cwd;
+  `fleet-report <domain> "<msg>"` — report to it without hardcoding tXXX.
+- `fleet-doctor` — preflight: hc server, watcher env contract, magpie gateway,
+  channel liveness, disk, dir hygiene; one command before a shift.
+- `fleet-verify <receipt> [--card] [--worker]` — mechanical receipt check: paths
+  exist, receipt newer than card, worker exit code, cards with hardcoded addresses.
+- `references/task-card-template.md` — the card format; reporting line uses
+  `~/fleet-orch/fleet-report <domain>`, not `hc send tXXX`.
+
 ## Quick start
 
 ```bash
 # 1) pick a receipts dir and a boss address (the hc terminal you orchestrate from)
 export FLEET_DIR=~/fleet-orch FLEET_BOSS=t14
 
-# 2) start the watchdog
+# 2) start the watchdog (current script is watchdog.sh; fleet.env holds the
+#    four contract vars — copy scripts/fleet.env.example, edit once per shift)
 tmux new-session -d -s fleet-watch \
-  "FLEET_BOSS=$FLEET_BOSS FLEET_DIR=$FLEET_DIR \
-   WATCH_PROGRESS='$HOME/radar-run/*/progress.json' \
-   EXCLUDE='$FLEET_BOSS' \
-   ~/.agents/skills/fleet-orch/scripts/fleet-watch.sh"
+  "set -a; . <repo>/fleet.env; exec bash <repo>/watchdog.sh"
+# Legacy equivalent: scripts/fleet-watch.sh with FLEET_BOSS/FLEET_DIR/EXCLUDE envs.
 
 # 3) record the task card below BEFORE dispatch; then start its worker
 hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
@@ -59,16 +75,23 @@ hc run --name <short-name> --cwd <repo> --bg pi -- "<task>"
 # A verified target in done state needs hc send --force for a required receipt.
 ```
 
-## Artifact placement (standing rule)
+## Artifact placement — put each thing where it works best (Liz, 2026-11-13)
 
-Everything a fleet dispatch produces goes under `~/fleet-orch/<session-dir>/`,
-not into the project it touched: task cards/briefs, prompts, receipts, memos,
-orchestration state, run logs of orchestrated jobs, worker evidence scratch.
-One session dir per shift (e.g. `night-1104/`; legacy consolidations use a
-semantic name like `legacy-radar-run/`). Name receipt files after the worker
-(`radar-w-auth.md`, `cfe-seo-receipt.md`). Project-owned artifacts stay in the
-project repo/workdir — a pipeline that must write beside its data keeps doing
-so; consolidate the records, not the runtime.
+No blanket "everything under the fleet dir" rule. Decide per artifact by its
+consumer: **who needs to find it later, and where will they look?**
+
+- **Fleet bookkeeping → `~/fleet-orch/<session-dir>/`**: task cards, prompts,
+  receipts, memos, orchestration state, run logs of orchestrated jobs, worker
+  evidence scratch. These are trace files; nobody looks for them in the repo.
+- **Project-bound deliverables → the project's repo/workdir**, at the obvious
+  path a human or agent working that project would check first. Captured
+  datasets, downloaded samples, fixtures, media, generated assets a project
+  consumes: they belong with the project, not in a fleet silo people can't
+  find (Liz: the old rule hid 39 inquiry-sample PDFs under
+  `fleet-orch/.../deliverables/` — moved to `cfe-app/sample-docs/`).
+  Respect the repo's own layout/gitignore conventions; decide git-tracking by
+  size and whether it must sync, not by default.
+- One session dir per shift; name receipt files after the worker.
 
 ## Start a shift — wire the loop before calling it proactive
 

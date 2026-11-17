@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""fleet-spawn: 工蚁派生入口——spawn 正典写进命令，包工头不用背 flag，也不用赌通道。
+
+用法：
+  fleet-spawn <kind> <name> [--cwd DIR] [--model M] [--card PATH] [--report 域]
+              [--no-parent] [--outlive-parent] [--no-check] [--force] [--dry-run]
+              [-- agent 附加参数]
+
+kind → argv（bypass flag 与 fleet-guard.py BYPASS 表一一对应，spawn 即合规）：
+  devin        devin [--model M] --permission-mode dangerous
+  agy          agy --dangerously-skip-permissions
+  antigravity  antigravity --dangerously-skip-permissions
+  claude       claude --dangerously-skip-permissions
+  codex        codex --dangerously-bypass-approvals-and-sandbox
+  gemini       gemini --yolo
+  opencode     opencode（无已知 bypass flag，guard 不审，stderr 提醒）
+  pi           pi [--provider magpie --model M]（免 permission flag）
+
+--model 支持 devin 与 pi，且派工前先体检（pi 查目录拼写 + 真发一次 8-token 请求；
+devin 比对 `devin models`）。通道死了（欠费/端点错配/400）当场退出并给可用后备，
+不会让 worker 白跑一趟 —— 这就是"模型 400 白跑"那类事故的堵法。加 --no-check 跳过，
+加 --force 硬派。
+
+--card <run>/cards/<name>.md 一起给时，额外打印一段可直接贴进任务卡的头
+（worker/地盘/回报地址/回执路径/验收命令），派工一次填对。
+
+自动行为：
+- --cwd 命中 herdr-app space folder 时附 --label herdr.space=<id>（APP 里直接可见）；
+  匹配不到不挂 label，fleet-guard 60s 内按同规则自动挂。
+- 默认挂为调用者子终端；开总包/外班用 --no-parent（hc 原生 flag）。
+- 派生后照旧 `hc send <addr> "读任务卡 <path>"`；首轮任务写进 send，别指望 argv。
+- 卡片汇报地址别写死 tXXX：用 fleet-report（同目录）或 fleet-boss 解析当期包工头。
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HOME = os.path.expanduser("~")
+KINDS = ("devin", "agy", "antigravity", "claude", "codex", "gemini", "opencode", "pi")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+FALLBACKS = {
+    "pi": ("group/deepseek-v4.1-flash", "volcengine/deepseek-v4-1-flash-261017"),
+    "devin": ("swe-2-max", "swe-2-flash-max"),
+}
+
+
+def run(cmd, timeout=60):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def pi_catalog():
+    try:
+        d = json.load(open(os.path.join(HOME, ".pi/agent/magpie-live-models.json")))
+        return {m["id"] for m in d.get("data", []) if m.get("id")}
+    except Exception:
+        return set()
+
+
+def near(bad, ids, n=3):
+    import difflib
+    return difflib.get_close_matches(bad, sorted(ids), n=n, cutoff=0.5)
+
+
+def check_model(kind, model):
+    """→ (ok, 说明, 后备提示)。真调一次，因为目录里有 ≠ 通道活着。"""
+    if kind == "pi":
+        m = model.split("/", 1)[1] if model.startswith("magpie/") else model
+        ids = pi_catalog()
+        if ids and m not in ids:
+            sug = near(m, ids)
+            return False, f"{m} 不在 magpie 目录（{len(ids)} 个模型）", \
+                ("相近: " + ", ".join(sug)) if sug else ""
+        r = run([os.path.join(HERE, "fleet-doctor"), "--channel", m], timeout=90)
+        if r is not None and r.returncode == 0:
+            return True, f"通道 ok（{(r.stdout or '').strip()}）", ""
+        err = [l for l in ((r.stderr if r else "") or "").strip().splitlines()
+               if l.strip() and not l.startswith(("可用后备", "相近"))]
+        return False, (err[0] if err else "通道探测失败"), "\n".join(err[1:])
+    if kind == "devin":
+        r = run(["devin", "models"], timeout=40)
+        names = set()
+        for line in ((r.stdout if r else "") or "").splitlines():
+            s = line.strip()
+            if s and not s.startswith(("Available", "aliases:", "[")) and "  " in line:
+                names.add(s.split()[0])
+        if names and model not in names:
+            sug = near(model, names)
+            return False, f"{model} 不在 `devin models`（{len(names)} 个）", \
+                ("相近: " + ", ".join(sug)) if sug else ""
+        return True, "devin 目录 ok", ""
+    return True, "该 kind 不校验模型", ""
+
+
+def agent_argv(kind, model, extra):
+    if kind == "devin":
+        return ["devin"] + (["--model", model] if model else []) + \
+            ["--permission-mode", "dangerous"] + extra
+    if kind == "pi":
+        m = model.split("/", 1)[1] if model and model.startswith("magpie/") else model
+        return ["pi"] + (["--provider", "magpie", "--model", m] if m else []) + extra
+    flag = {
+        "agy": "--dangerously-skip-permissions",
+        "antigravity": "--dangerously-skip-permissions",
+        "claude": "--dangerously-skip-permissions",
+        "codex": "--dangerously-bypass-approvals-and-sandbox",
+        "gemini": "--yolo",
+    }.get(kind)
+    if model:
+        print(f"fleet-spawn: --model 仅 devin/pi 支持，{kind} 忽略", file=sys.stderr)
+    if kind == "opencode":
+        print("fleet-spawn: opencode 无已知 bypass flag，fleet-guard 不审它；授权行为自查",
+              file=sys.stderr)
+    if kind == "gemini" and not shutil.which("gemini"):
+        print("fleet-spawn: 警告 gemini 不在 PATH", file=sys.stderr)
+    return [kind] + ([flag] if flag else []) + extra
+
+
+def space_for(cwd):
+    app = shutil.which("herdr-app")
+    if not app or not cwd:
+        return None
+    try:
+        r = subprocess.run([app, "ls"], capture_output=True, text=True, timeout=10)
+        spaces = json.loads(r.stdout).get("spaces", []) if r.returncode == 0 else []
+    except Exception:
+        return None
+    for s in spaces:
+        f = s.get("folder") or ""
+        if f and cwd.startswith(f):
+            return s.get("id")
+    return None
+
+
+def brief(name, kind, model, cwd, card, addr, report):
+    """可粘贴的卡片头——派工一次填对，回执/验收路径都带真实值。"""
+    rcpt = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(card))),
+                        "receipts", os.path.basename(card)) if card else None
+    rpt = os.path.join(HERE, "fleet-report")
+    vfy = os.path.join(HERE, "fleet-verify")
+    out = ["## 派工头（fleet-spawn 生成，贴进任务卡）", f"worker: {name}（{kind}"
+           + (f"，model={model}" if model else "") + f"，{addr}）",
+           f"地盘: {cwd}（其他目录不碰；hc ls 是观测不是工单）"]
+    if rcpt:
+        out.append(f"回执: {rcpt}")
+    out.append(f'汇报: {rpt} {report} "<一句话结论+证据路径>"')
+    if rcpt:
+        out.append(f"验收: {vfy} {rcpt}"
+                   + (f" --card {card}" if card else "") + f" --worker {addr}")
+    return "\n".join(out)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if args else 2
+    kind = args.pop(0)
+    if kind not in KINDS:
+        print(f"fleet-spawn: 未知 kind {kind!r}（可选 {'/'.join(KINDS)}）", file=sys.stderr)
+        return 2
+    if not args:
+        print("fleet-spawn: 缺 <name>", file=sys.stderr)
+        return 2
+    name = args.pop(0)
+    if not NAME_RE.match(name):
+        print(f"fleet-spawn: name {name!r} 不合规（1-32 位 a-z 0-9 - _）", file=sys.stderr)
+        return 2
+
+    cwd, model, card, report = os.getcwd(), None, None, "-"
+    no_parent = outlive = dry = no_check = force = False
+    extra = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            extra = args[i + 1:]
+            break
+        if a in ("--cwd", "--model", "--card", "--report") and i + 1 < len(args):
+            v = args[i + 1]; i += 2
+            if a == "--cwd":
+                cwd = os.path.abspath(os.path.expanduser(v))
+            elif a == "--model":
+                model = v
+            elif a == "--card":
+                card = os.path.abspath(os.path.expanduser(v))
+            else:
+                report = v
+        elif a == "--no-parent":
+            no_parent = True; i += 1
+        elif a == "--outlive-parent":
+            outlive = True; i += 1
+        elif a == "--no-check":
+            no_check = True; i += 1
+        elif a == "--force":
+            force = True; i += 1
+        elif a == "--dry-run":
+            dry = True; i += 1
+        else:
+            print(f"fleet-spawn: 未知参数 {a!r}（agent 附加参数放 -- 之后）", file=sys.stderr)
+            return 2
+
+    if model and not no_check:
+        ok, msg, hint = check_model(kind, model)
+        if not ok and not force:
+            fb = FALLBACKS.get(kind) or ()
+            print(f"fleet-spawn: 模型检查未过 — {kind} {model}\n  {msg}"
+                  + (f"\n  {hint}" if hint else "")
+                  + (f"\n  后备: {', '.join(fb)}" if fb else "")
+                  + (f"\n  换模: fleet-spawn {kind} {name} --cwd {cwd} "
+                     f"--model {fb[0]}（同参数）" if fb else "")
+                  + "\n  照派: 加 --force（不推荐，多半白跑）", file=sys.stderr)
+            return 1
+        print(f"fleet-spawn: {msg}" if ok else
+              f"fleet-spawn: 通道检查未过但 --force 照派 — {msg}", file=sys.stderr)
+
+    argv = agent_argv(kind, model, extra)
+    cmd = ["hc", "run", "--json", "--bg", "--name", name, "--cwd", cwd]
+    sid = space_for(cwd)
+    if sid:
+        cmd += ["--label", f"herdr.space={sid}"]
+    if no_parent:
+        cmd += ["--no-parent"]
+    if outlive:
+        cmd += ["--outlive-parent"]
+    cmd += ["--"] + argv
+
+    if dry:
+        print(" ".join(cmd))
+        if card:
+            print("\n" + brief(name, kind, model, cwd, card, "<spawn 后地址>", report))
+        return 0
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"fleet-spawn: hc run 失败 rc={r.returncode}: {r.stderr.strip() or r.stdout.strip()}",
+              file=sys.stderr)
+        return r.returncode
+    try:
+        addr = json.loads(r.stdout).get("address", "?")
+    except Exception:
+        addr = r.stdout.strip() or "?"
+    print(f"spawned {addr} ({name}, {kind}) cwd={cwd} space={sid or 'guard-60s'}")
+    print(f'next: hc send {addr} "读任务卡 <path> 并严格执行 ..."')
+    if card:
+        print("\n" + brief(name, kind, model, cwd, card, addr, report))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

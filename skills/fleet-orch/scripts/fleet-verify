@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""fleet-verify: 回执验收的第一道筛子——省掉"开回执+翻目录+猜真假"的读屏。
+
+它不判断内容对不对（那是 boss 的活），只查四件机械事实：
+  1. 回执存在、非空、不像占位（<400 字节）；
+  2. 回执比任务卡新（没写卡就报 = 可疑）；
+  3. 回执里反引号引用的路径/文件在盘上真的存在（抽查 live 证据，最多 40 条）；
+  4. 可选：worker 终端的退出码 + 屏幕尾部的报错特征（模型 400/欠费/超时）。
+
+用法：
+  fleet-verify <receipt.md> [--card <card.md>] [--worker tXXX] [--root DIR] [--quiet]
+
+  --card    比 mtime，防"旧回执冒充新活"
+  --root    额外搜索根（相对路径按它解析；worker 回执写地盘相对路径时给，可重复）
+  --worker  附上该终端的 exit_code 与报错尾巴（hc read 对已结束终端仍可读）
+  --quiet   只打印结论行
+
+退出码：0 通过（可能有 ⚠️）；1 有 ❌；2 用法/文件不存在。
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+KICKOFF_FIELDS = ("worker", "地盘", "commit", "汇报")
+ERR_PAT = re.compile(
+    r"(insufficient credit|\b40[0-9]:|invalid_request_error|\b429\b|\b5[0-2][0-9]\b|"
+    r"ECONNREFUSED|ETIMEDOUT|no such model|model_not_found|context length|"
+    r"rate limit|timed out|Error: )", re.I)
+TICK = re.compile(r"`([^`\n]{2,200})`")
+MAX_PATHS = 40
+
+
+def sh(cmd, timeout=25):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def candidate_roots(receipt, extra=()):
+    roots = list(extra) + [os.getcwd(), os.path.dirname(os.path.abspath(receipt)),
+                           os.path.expanduser("~")]
+    dev = os.path.expanduser("~/dev")
+    roots.append(dev)
+    try:
+        roots += [os.path.join(dev, d) for d in os.listdir(dev)]
+    except OSError:
+        pass
+    # 回执所在目录往上三级（run 目录 → 仓库根）
+    p = os.path.dirname(os.path.abspath(receipt))
+    for _ in range(3):
+        p = os.path.dirname(p)
+        roots.append(p)
+    seen, out = set(), []
+    for r in roots:
+        if r and r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def path_like(tok):
+    t = tok.strip()
+    if t.startswith(("http://", "https://", "*", "-", "$ ", "$(")) or " " in t:
+        return None
+    if any(c in t for c in "*?<>|$"):
+        return None
+    t = re.sub(r":\d+(-\d+)?$", "", t)          # path:164 / path:12-18
+    t = re.sub(r"#L\d+.*$", "", t)              # #L12-L18
+    if not re.search(r"[/.]", t):
+        return None
+    if not (t.startswith(("/", "~/", "./", "../")) or "/" in t):
+        return None
+    t = t.rstrip(",.;)）】")
+    # 占位符 / 环境变量 / 目录模板不是可核验路径：FLEET_DIR/…、<run>/cards、YYYY-MM-DD/
+    if t.endswith("/") or "YYYY" in t or "..." in t:
+        return None
+    if any(len(x) > 2 and x.isalpha() and x.isupper() for x in t.split("/")):
+        return None
+    return t
+
+
+def resolve(tok, roots):
+    cand = os.path.expanduser(tok) if tok.startswith("~/") else tok
+    if os.path.isabs(cand):
+        return cand if os.path.exists(cand) else None
+    for r in roots:
+        p = os.path.join(r, cand)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def worker_report(addr, quiet):
+    r = sh(["hc", "ls", "--all", "--json"])
+    exit_code, state = None, "?"
+    try:
+        for t in json.loads(r.stdout).get("terminals", []):
+            if t.get("address") == addr:
+                exit_code, state = t.get("exit_code"), t.get("state")
+                break
+    except Exception:
+        pass
+    screen = sh(["hc", "read", addr])
+    text = (screen.stdout if screen and screen.returncode == 0 else "") or ""
+    hits = [l.strip()[:150] for l in text.splitlines() if ERR_PAT.search(l)]
+    ok = exit_code in (0, None)
+    print(f"{'❌' if not ok else '✅'} worker {addr}  state={state} exit_code={exit_code}")
+    if hits:
+        print(f"⚠️  屏幕里有 {len(hits)} 行报错特征，末 3 行：")
+        for l in hits[-3:]:
+            print(f"    {l}")
+        return False
+    return ok
+
+
+def main(argv):
+    quiet = "--quiet" in argv
+    argv = [a for a in argv if a != "--quiet"]
+    receipt = card = worker = None
+    extra_roots = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--card" and i + 1 < len(argv):
+            card = argv[i + 1]; i += 2
+        elif a == "--worker" and i + 1 < len(argv):
+            worker = argv[i + 1]; i += 2
+        elif a == "--root" and i + 1 < len(argv):
+            extra_roots.append(os.path.abspath(os.path.expanduser(argv[i + 1]))); i += 2
+        elif a in ("-h", "--help"):
+            print(__doc__.strip()); return 0
+        elif not receipt:
+            receipt = a; i += 1
+        else:
+            print(f"fleet-verify: 多余参数 {a!r}", file=sys.stderr); return 2
+    if not receipt:
+        print(__doc__.strip(), file=sys.stderr); return 2
+
+    say = (lambda *a: None) if quiet else print
+    fails = warns = 0
+
+    if not os.path.isfile(receipt):
+        print(f"❌ 回执不存在: {receipt}")
+        return 2
+    size = os.path.getsize(receipt)
+    lines = sum(1 for _ in open(receipt, encoding="utf-8", errors="replace"))
+    say(f"{'✅' if size >= 400 else '⚠️ '} 回执 {receipt}")
+    say(f"   {size} 字节 / {lines} 行" + ("（像占位/空壳，别当交付）" if size < 400 else ""))
+    if size < 400:
+        warns += 1
+
+    if card:
+        if not os.path.isfile(card):
+            print(f"❌ 任务卡不存在: {card}"); fails += 1
+        else:
+            rm, cm = os.path.getmtime(receipt), os.path.getmtime(card)
+            if rm + 1 < cm:
+                say(f"❌ 回执比任务卡旧 {int((cm-rm)/60)} 分钟——可能拿旧回执冒充这轮")
+                fails += 1
+            else:
+                say(f"✅ 比任务卡新 {int((rm-cm)/60)} 分钟")
+
+    if card and os.path.isfile(card):
+        cbody = open(card, encoding="utf-8", errors="replace").read()
+        hard = re.findall(r"hc send (t[0-9a-z]{2,4})\b", cbody)
+        if hard:
+            say(f"⚠️  任务卡写死汇报地址 hc send {hard[0]}（换届即 stale）——"
+                f"改成 `~/fleet-orch/fleet-report <域>`")
+            warns += 1
+
+    body = open(receipt, encoding="utf-8", errors="replace").read()
+    missing_fields = [f for f in KICKOFF_FIELDS if f.lower() not in body.lower()]
+    if missing_fields:
+        say(f"⚠️  模板必填头缺: {', '.join(missing_fields)}（自由格式回执可忽略）")
+        warns += 1
+    else:
+        say("✅ 必填头字段齐（worker/地盘/commit/汇报）")
+
+    toks = []
+    for m in TICK.finditer(body):
+        p = path_like(m.group(1))
+        if p and p not in toks:
+            toks.append(p)
+    roots = candidate_roots(receipt, extra_roots)
+    ok_paths, miss = [], []
+    for t in toks[:MAX_PATHS]:
+        (ok_paths if resolve(t, roots) else miss).append(t)
+    if toks:
+        say(f"{'⚠️ ' if miss else '✅'} 回执引用路径 {len(ok_paths)}/{len(toks[:MAX_PATHS])} 在盘上找到")
+        if miss:
+            warns += 1
+            for t in miss[:8]:
+                say(f"   找不到: {t}")
+            if not extra_roots:
+                say("   （相对路径多半相对 worker 地盘——加 --root <dir> 再跑一遍）")
+    else:
+        say("⚠️  回执里没有可核的路径引用——验收只能靠读内容")
+        warns += 1
+
+    if worker and not worker_report(worker, quiet):
+        fails += 1
+
+    verdict = "PASS" if not fails else "FAIL"
+    if not fails and warns:
+        verdict = "PASS-with-warnings"
+    print(f"\n{verdict}  ❌{fails} ⚠️{warns}"
+          + ("" if fails else "  → 机械项过了，内容/证据仍要 boss 自己看"))
+    return 0 if not fails else 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)

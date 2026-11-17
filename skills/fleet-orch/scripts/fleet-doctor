@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""fleet-doctor: 派工前体检——终端/看门狗/boss 解析/模型通道/目录卫生，一条命令 3~6 秒。
+
+为什么：模型通道会静默失效（欠费/端点错配），任务派出去才白跑；watchdog 跑没跑、
+fleet-boss 能不能解析，也只有出事才发现。这些都能在派工前 5 秒查清。
+
+用法：
+  fleet-doctor                        全量体检（默认探测 2 个常用通道）
+  fleet-doctor --model M [--model M2] 体检 + 额外探测指定模型
+  fleet-doctor --channel M            只探一个通道（脚本/派工前用）：ok 打印 "OK <ms>" 退 0；
+                                      死了打印错误原文退 1
+  fleet-doctor --quick                跳过通道探测（只看环境/卫生，~1 秒）
+  fleet-doctor --timeout 8            单次探测超时（默认 30 秒上限，通常 1~2 秒返回）
+
+退出码：0 全绿；1 有致命项（hc 不通 / magpie 不通 / 探测的模型挂了）；
+        2 用法错。⚠️ 类问题不改变退出码，但会打印出来。
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HOME = os.path.expanduser("~")
+DEFAULT_PROBES = ("volcengine/deepseek-v4-1-flash-261017", "group/deepseek-v4.1-flash")
+GOOD_FALLBACKS = ("group/deepseek-v4.1-flash", "volcengine/deepseek-v4-1-flash-261017",
+                  "hanzilla/claude-haiku-4-5")
+
+
+def sh(cmd, timeout=20, env=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    except Exception:
+        return None
+
+
+def pi_provider():
+    """从 pi 的 models.json 取 magpie 的 baseUrl/apiKey——不重复硬编码。"""
+    try:
+        d = json.load(open(os.path.join(HOME, ".pi/agent/models.json")))
+        p = d["providers"]["magpie"]
+        return p.get("baseUrl", "http://127.0.0.1:3425/v1").rstrip("/"), p.get("apiKey") or "magpie"
+    except Exception:
+        return "http://127.0.0.1:3425/v1", "magpie"
+
+
+def catalog():
+    """magpie 模型目录（离线快照）→ id 集合，用于派工前判拼写。"""
+    try:
+        d = json.load(open(os.path.join(HOME, ".pi/agent/magpie-live-models.json")))
+        return {m["id"] for m in d.get("data", []) if m.get("id")}
+    except Exception:
+        return set()
+
+
+def probe(model, timeout=30):
+    """真发一次 8-token 请求——列表里有 ≠ 通道活着（欠费/端点错都只有真调才暴露）。"""
+    base, key = pi_provider()
+    url = base + "/chat/completions"
+    body = json.dumps({"model": model, "messages": [{"role": "user", "content": "ok"}],
+                       "max_tokens": 8})
+    t0 = time.time()
+    r = sh(["curl", "-s", "-m", str(timeout), url,
+            "-H", "Content-Type: application/json", "-H", f"Authorization: Bearer {key}",
+            "-d", body], timeout=timeout + 5)
+    ms = int((time.time() - t0) * 1000)
+    if r is None or r.returncode != 0:
+        return False, f"curl rc={getattr(r, 'returncode', '?')}（网关没响应）", ms
+    txt = (r.stdout or "").strip()
+    try:
+        d = json.loads(txt)
+    except Exception:
+        return False, f"非 JSON 响应: {txt[:120]}", ms
+    if isinstance(d, dict) and d.get("error"):
+        e = d["error"]
+        return False, (e.get("message") if isinstance(e, dict) else str(e))[:160], ms
+    if isinstance(d, dict) and d.get("choices"):
+        return True, "", ms
+    return False, f"无 choices: {txt[:120]}", ms
+
+
+def near_matches(bad, ids, n=3):
+    import difflib
+    return difflib.get_close_matches(bad, sorted(ids), n=n, cutoff=0.5)
+
+
+def channel_mode(model, timeout):
+    ok, err, ms = probe(model, timeout)
+    if ok:
+        print(f"OK {ms}")
+        return 0
+    print(f"FAIL {err}", file=sys.stderr)
+    ids = catalog()
+    if ids and model not in ids:
+        sug = near_matches(model, sorted(ids))
+        if sug:
+            print(f"目录里没这个 id，相近: {', '.join(sug)}", file=sys.stderr)
+    print(f"可用后备: {', '.join(GOOD_FALLBACKS)}", file=sys.stderr)
+    return 1
+
+
+def watchdog_env():
+    """找出正在跑的 watchdog.sh（tmux 里那个），把它的 env 契约读出来——map/EXCLUDE 是 env 不是文件。"""
+    r = sh(["pgrep", "-af", "watchdog.sh"])
+    pids = []
+    for line in (r.stdout or "").splitlines() if r else []:
+        parts = line.split(None, 1)
+        if len(parts) == 2 and "fleet-orch/watchdog.sh" in parts[1] and "pgrep" not in parts[1]:
+            pids.append(parts[0])
+    if not pids:
+        return None, {}
+    env = {}
+    try:
+        raw = open(f"/proc/{pids[0]}/environ", "rb").read().decode("utf-8", "replace")
+        for kv in raw.split("\0"):
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                if k.startswith("FLEET") or k == "EXCLUDE":
+                    env[k] = v
+    except Exception:
+        pass
+    return pids[0], env
+
+
+def live_terms():
+    r = sh(["hc", "ls", "--json"], timeout=20)
+    if r is None or r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout).get("terminals", [])
+    except Exception:
+        return None
+
+
+def mark(ok, warn=False):
+    return "⚠️ " if warn else ("✅" if ok else "❌")
+
+
+def git_root():
+    p = HERE
+    for _ in range(4):
+        if os.path.isdir(os.path.join(p, ".git")):
+            return p
+        p = os.path.dirname(p)
+    return HERE
+
+
+def hygiene():
+    """根目录散件：不阻止，只让它在每次体检时露头（沉默堆积才是问题）。"""
+    root = git_root()
+    try:
+        names = [n for n in os.listdir(root) if not n.startswith(".")]
+    except OSError:
+        return None
+    mds = [n for n in names if n.endswith(".md")]
+    r = sh(["git", "-C", root, "status", "--porcelain", "--untracked-files=normal"], timeout=15)
+    untracked = []
+    for line in (r.stdout or "").splitlines() if r else []:
+        if line.startswith("??"):
+            untracked.append(line[3:].strip().rstrip("/"))
+    return {"root": root, "n": len(names), "mds": len(mds), "untracked": untracked}
+
+
+def main(argv):
+    deep = "--quick" not in argv
+    timeout = 30
+    probes = list(DEFAULT_PROBES)
+    channel_only = None
+    for i, a in enumerate(argv):
+        if a == "--timeout" and i + 1 < len(argv):
+            timeout = int(argv[i + 1])
+        elif a == "--model" and i + 1 < len(argv):
+            probes.append(argv[i + 1])
+        elif a == "--channel" and i + 1 < len(argv):
+            channel_only = argv[i + 1]
+        elif a in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+    if channel_only:
+        return channel_mode(channel_only, timeout)
+
+    fatal = 0
+    print(f"fleet-doctor  {time.strftime('%Y-%m-%d %H:%M')}")
+
+    # 1) hc server + 终端
+    terms = live_terms()
+    if terms is None:
+        print(f"{mark(False)} hc          server 不通（hc ls 失败）——先跑 `hc server status`")
+        fatal += 1
+        terms = []
+    else:
+        r = sh(["hc", "ls", "--all", "--json"], timeout=20)
+        known = len(json.loads(r.stdout).get("terminals", [])) if r and r.returncode == 0 else 0
+        print(f"{mark(True)} hc          server up（live {len(terms)} / 记录 {known}）")
+
+    # 2) watcher + env 契约
+    pid, env = watchdog_env()
+    fdir = env.get("FLEET_DIR") or "/home/liz/radar-run/fleet"
+    if not pid:
+        print(f"{mark(False)} watcher     没在跑——状态变化不会通知任何人"
+              f"（重建见 {os.path.join(HERE, 'watchdog.sh')} 头注释）")
+    else:
+        print(f"{mark(True)} watcher     PID {pid}  FLEET_DIR={fdir}")
+        print(f"   路由       FLEET_BOSS={env.get('FLEET_BOSS') or '(未设)'}  "
+              f"EXCLUDE={env.get('EXCLUDE') or '(无)'}")
+        m = env.get("FLEET_BOSS_MAP") or ""
+        if not m:
+            print(f"{mark(True, warn=True)} FLEET_BOSS_MAP 未设——多域时所有通知落同一个 boss")
+        else:
+            for pair in m.split(";"):
+                if "=" not in pair:
+                    continue
+                pre, addr = pair.rsplit("=", 1)
+                alive = any(t.get("address") == addr for t in terms)
+                print(f"{mark(alive, warn=not alive)} map {pre} → {addr}"
+                      + ("" if alive else "（该地址不 live，通知会静默丢）"))
+
+    # 3) fleet-boss 解析（每个域一次）
+    domains = []
+    for pair in (env.get("FLEET_BOSS_MAP") or "").split(";"):
+        if "=" in pair:
+            domains.append(os.path.basename(pair.rsplit("=", 1)[0].rstrip("/")))
+    for d in dict.fromkeys(domains) or []:
+        r = sh([os.path.join(HERE, "fleet-boss"), d], timeout=25)
+        addr = (r.stdout or "").strip() if r and r.returncode == 0 else ""
+        print(f"{mark(bool(addr))} boss {d:<10} {addr or '解析失败（域内无 *boss* 终端）'}")
+        if not addr:
+            fatal += 1
+
+    # 4) magpie 网关 + 通道
+    base, _ = pi_provider()
+    r = sh(["curl", "-s", "-m", "6", base + "/models"], timeout=12)
+    try:
+        n = len(json.loads(r.stdout).get("data", []))
+        print(f"{mark(True)} magpie      {n} 个模型 @ {base}")
+    except Exception:
+        print(f"{mark(False)} magpie      网关不通 @ {base}——pi worker 全部派不出去")
+        fatal += 1
+        deep = False
+
+    if deep:
+        ids = catalog()
+        for m in dict.fromkeys(probes):
+            ok, err, ms = probe(m, timeout)
+            tail = "" if (ok and (not ids or m in ids)) else (
+                f"  目录无此 id（相近: {', '.join(near_matches(m, sorted(ids)))}）" if not ok else
+                "  目录无此 id，拼写？")
+            print(f"{mark(ok)} 通道 {m}  " + (f"{ms}ms" if ok else err) + tail)
+            if not ok:
+                fatal += 1
+                print(f"   后备       {', '.join(GOOD_FALLBACKS)}")
+
+    # 5) 磁盘：worker 会写 build/截图/日志，根盘满了先坏的是 build 和 git 提交
+    try:
+        st = os.statvfs("/home")
+        free_g = st.f_bavail * st.f_frsize / 1e9
+        used = 100 * (1 - st.f_bavail / st.f_blocks)
+        bad = free_g < 2
+        print(f"{mark(not bad, warn=(free_g < 8))} 磁盘        根盘 {used:.0f}% 已用，"
+              f"剩 {free_g:.1f}G" + ("" if not bad else "——低于 2G，build/提交会开始随机失败"))
+        if bad:
+            fatal += 1
+    except OSError:
+        pass
+
+    # 6) 目录卫生
+    h = hygiene()
+    if h:
+        warn = h["n"] > 120 or bool(h["untracked"])
+        print(f"{mark(True, warn=warn)} 卫生        仓库根 {h['n']} 项（{h['mds']} 个 .md）"
+              f"，未跟踪 {len(h['untracked'])} 项")
+        if h["untracked"]:
+            print(f"   未跟踪     {' '.join(h['untracked'][:6])}")
+        if warn:
+            print(f"   落位       一次性产物进 <域>-YYYY-MM-DD/{{cards,receipts}}，"
+                  f"历史散件进 _archived/；别落仓库根")
+
+    print(f"\n{'退出码 0：全绿' if fatal == 0 else f'退出码 {min(fatal, 1)}：{fatal} 项致命'}")
+    return 1 if fatal else 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
