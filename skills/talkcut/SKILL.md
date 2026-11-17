@@ -104,6 +104,8 @@ All artifacts go into one working directory (`work/` below); scripts hand off on
      `start` is final-cut time in seconds, taken from sentence starts in `cut.json`; the first segment starts at 0. Top line = which part we are in, bottom line = what this segment says; both must fit on one line. Write titles in the video's language.
    - `python3 scripts/navbar.py work/cut.json work/chapters.json` → `work/navbar.mp4`: same length as the cut, no audio, same width, black background, white text, blue progress bar with gaps between chapters. Style lives in `assets/navbar-black-blue.json`.
    - On delivery, explain: drop it into CapCut above the main track, aligned at 0 s, at the top of the frame; to make room, scale the original down and shift it.
+   - For a floating liquid-glass chapter island (not the paper strip), see [island-nav/DESIGN.md](island-nav/DESIGN.md). It is a separate overlay tool and does not replace `navbar.py`.
+   - Portrait interview island (not the paper strip): `island-nav/`. See `island-nav/DESIGN.md`. Do not blur or glow anything outside the pill.
 
 ## Delivery defaults
 
