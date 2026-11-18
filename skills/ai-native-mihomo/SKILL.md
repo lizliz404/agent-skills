@@ -106,6 +106,14 @@ otherwise. Patch on ingestion, before first start:
    local agent (it reads the same config file); it is a fence against the LAN.
 3. Scan for `allow-lan: true` — keep only if LAN sharing is actually wanted.
 
+Airport exits are shared IPs. Co-tenant abuse can mark an exit as high-risk
+and collateral-damage other accounts on it. A self-hosted exclusive IP
+reduces that particular risk, but is not a clean bill of health: datacenter
+ranges and previous-tenant history can still score poorly. This skill stays
+airport-centric for availability; the account-risk implication, and the
+source post, are in `references/2026-11-18-self-hosted-vs-airport-ip-risk.md`
+and `references/2026-11-17-williamlong-2122707838799892807.md`.
+
 ## Download doctrine (CN networks)
 
 A ladder; try in order, never grind a rung:
@@ -535,5 +543,7 @@ Machine tooling shipped with this skill (same directory):
 | `scripts/mihomo_manager.py` | profile ingestion / merge / validate / atomic promote / rollback |
 | `policy.yaml` | policy SOT for this machine (region order, airport order, junk patterns, selector knobs) |
 | `units/`, `tests/`, `references/mihomo-manager.md` | systemd units, offline tests, manager docs |
+| `references/2026-11-17-williamlong-2122707838799892807.md` | William Long 原帖归档：自建 VPS/Xray vs 机场共享出口 |
+| `references/2026-11-18-self-hosted-vs-airport-ip-risk.md` | 对上述论点的评估：共享出口风险、独享 IP 的限度、与本 skill 的关系 |
 
 Full reproduction steps with per-step completion criteria: [RUNBOOK.md](RUNBOOK.md).
