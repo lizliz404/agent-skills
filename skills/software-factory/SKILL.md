@@ -261,3 +261,4 @@ language.
 | [`references/source-index.md`](references/source-index.md) | Every "go read this" URL, fetched 2026-11-18, with status |
 | [`references/posts/`](references/posts/) | Archived posts (original language) |
 | [`evals/scenarios.md`](evals/scenarios.md) | Decision-ladder scenarios, not passing test evidence |
+| [`../fleet-orch/refs/2026-11-21-lauren-tan-all-code-is-slop.md`](../fleet-orch/refs/2026-11-21-lauren-tan-all-code-is-slop.md) | Lauren Tan / Poteto talk note (user-supplied transcript): constraints and verification before factory automation; speaker claims kept separate from the distillation. Not a new factory definition, and not a source of throughput targets |

@@ -285,3 +285,13 @@ it neither assesses nor dispatches. `test-intake-scan.sh` is its offline test.
 Progress judgement is a boss duty (see "Progress, not just liveness"), not a
 separate model watchdog yet. See `references/dsh-design-notes.md` and
 `references/proactive-intake.md` for the DSH design this came from.
+
+## Source notes (load on demand)
+
+When a correction keeps recurring, when fleet volume is outrunning review, or
+when you are tempted to raise worker autonomy or auto-merge, read
+`refs/2026-11-21-lauren-tan-all-code-is-slop.md`. It is a researched note
+(Chinese distillation, original transcript at the bottom) on making the
+agent's environment constrain and verify work so throughput does not require
+a bigger human review team. It does not change this skill's dispatch,
+watchdog, or authorization rules.
