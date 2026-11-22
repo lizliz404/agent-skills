@@ -10,6 +10,7 @@ worker: <name>（spawn 方式：~/fleet-orch/fleet-spawn <kind> <name> --cwd <di
 commit 纪律: 本地 commit 一旦落下视为已发布（增量 pusher ~2min 推 main → CF Pages）；禁 amend/rebase/reset 已 commit 历史；修错一律追加新 commit；小步提交、每步验证过再落
 汇报: ~/fleet-orch/fleet-report <域> "<一句话结论+证据路径>"   # 域=space名/项目目录名；解析当期包工头，换届不 stale；解析失败会退非零而不是静默发空地址
 回执: <run>/receipts/<name>.md（验收用 ~/fleet-orch/fleet-verify <回执> --card <卡> --worker <addr>）
+交付正本: <project-scope 路径——产物/内容类交付（口播稿、文章、草稿、数据集、素材）的唯一落处；回执只留一行指针，不装正本>   # 内容 Liz 会消费的（口播稿/文章/草稿）落 ~/dev/repos/thinkerdoerprompter/writing/YYYY-MM-DD/<slug>/，口播按 video-script-conversion Step 8 + writing/AGENTS.md（w37c 教训 2026-11-22）
 ```
 
 > 派工前先体检，别让 worker 拿死通道白跑：`~/fleet-orch/fleet-doctor`（3~6 秒：hc / watcher / boss 解析 / magpie 通道 / 目录卫生）。
@@ -20,6 +21,7 @@ commit 纪律: 本地 commit 一旦落下视为已发布（增量 pusher ~2min �
 
 - 每班一个 `<域>-YYYY-MM-DD>/`（例：`cfe-2026-11-17/`、`npd-loop-2026-11-17/`），内含 `cards/` `receipts/`，需要时 `queue.md` `summary.md`。
 - 任务卡进 `<run>/cards/`，回执进 `<run>/receipts/`，文件名与卡同名——验收脚本靠这个对齐。
+- 内容类交付（口播稿/文章/草稿，Liz 会消费的）正本落 writing 项目（`~/dev/repos/thinkerdoerprompter/writing/YYYY-MM-DD/<slug>/`），回执只留指针行——w37c 教训：整份口播稿曾只存在于 fleet receipts，2026-11-22 纠正。
 - 仓库根只放**机制件**（watchdog/fleet-* / task-card-template / DECISIONS）与历史账本；新的一次性产物不落根。
 - 历史散件进 `_archived/root-scratch-YYYY-MM-DD/`，不直接删（留档）。
 

@@ -91,6 +91,13 @@ consumer: **who needs to find it later, and where will they look?**
   `fleet-orch/.../deliverables/` — moved to `cfe-app/sample-docs/`).
   Respect the repo's own layout/gitignore conventions; decide git-tracking by
   size and whether it must sync, not by default.
+- **Content deliverables Liz will consume** (口播稿, articles, drafts, social
+  copy): the artifact's only home is the writing project —
+  `~/dev/repos/thinkerdoerprompter/writing/YYYY-MM-DD/<slug>/` (spoken scripts
+  follow `video-script-conversion` Step 8 + `writing/AGENTS.md` frontmatter).
+  The receipt carries a pointer line, never the deliverable itself (w37c,
+  2026-11-22: a full 口播稿 shipped only as a fleet receipt; Liz's standing
+  correction).
 - One session dir per shift; name receipt files after the worker.
 
 ## Start a shift — wire the loop before calling it proactive
@@ -123,7 +130,9 @@ source locator + short exact request; explicit / inferred + permitted actions:
 owner name + cwd + current hc address; writable scope; related task keys:
 scope fence — dirs/domain the worker may touch + "fleet visibility is not a
 work queue" (see Worker contract):
-deliverable + acceptance evidence + stop/budget boundary:
+deliverable + its project-scope home (where the artifact itself lives — the
+receipt is trace-only; content Liz consumes goes to the writing repo) +
+acceptance evidence + stop/budget boundary:
 state + last substantive evidence/time + next check:
 receipt/full-log links + pending question/original reply channel:
 ```
