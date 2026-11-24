@@ -2,7 +2,7 @@
 
 Clone-and-use skill packs for AI coding assistants — Claude Code, Cursor, Codex, Hermes, or any agent that reads a `SKILL.md`. Twenty-two packs in `skills/`, each just a folder. No installers, no frameworks, no signup.
 
-Also published on **[lizliz.xyz/skills](https://lizliz.xyz/skills)** — same packs, browsable online.
+Nine packs are also showcased on **[lizliz.xyz/skills](https://lizliz.xyz/skills)**, which links back to these repos.
 
 ```mermaid
 graph TD
